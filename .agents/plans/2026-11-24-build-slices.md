@@ -17,7 +17,7 @@ Goal of this plan: reach a testable vertical slice fast — **auth and notes in 
 | Slice | Name | Depends on | Status |
 |---|---|---|---|
 | S0 | Scaffold, skills, and repo | — | ✅ done |
-| S1 | Core plumbing: config, vault FS, SQLite, scan | S0 | ⬜ next |
+| S1 | Core plumbing: config, vault FS, SQLite, scan | S0 | ✅ done |
 | S2 | Auth in core | S1 | ⬜ |
 | S3 | Notes in core: CRUD, links, search, SSE | S2 | ⬜ |
 | S4 | Web UI on the notes API | S3 | ⬜ |
@@ -47,7 +47,9 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 ---
 
-## S1 — Core plumbing: config, vault, SQLite, scan
+## S1 — Core plumbing: config, vault, SQLite, scan ✅
+
+**Delivered 2026-11-24:** `config` (TOML + `LEWNOTES_*` + source-named validation errors), `vault` (path/symlink safety, atomic serialized writes, ignored walks), `markdown` (surgical frontmatter `id:` insertion/replacement, ULID validation, title/excerpt extraction), embedded `migrations/0001_init.sql` (notes, links, tags, meta, FTS5), `index` (upsert, tags, FTS, meta, scan status), and the scanner (incremental diffing, ID assignment, duplicate reassignment, stale removal), wired into `lewnotes-core` with a startup scan plus `GET/POST /api/v1/index/{status,rescan}`. Verified with unit tests and a live vault run including DB deletion and rescan.
 
 **Goal:** a server that can own a vault directory, assign stable IDs, and index notes into SQLite — with no auth and no notes API yet.
 
@@ -256,4 +258,4 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 ## Next action
 
-Start **S1**: config loading first (it unblocks everything), then the vault path/atomic-write layer, then frontmatter IDs, then the SQLite schema and scanner.
+Start **S2 (auth in core):** decide token scopes, then build `0002_auth.sql`, argon2id, sessions + CSRF, the `lnt.` device-token format, rate limiting, and the `/auth/*` + `/tokens` routes. The index routes stay open until the middleware lands in this slice.

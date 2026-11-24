@@ -10,11 +10,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/caleblewallen/lewnotes/server/internal/api"
+	"github.com/caleblewallen/lewnotes/server/internal/config"
+	"github.com/caleblewallen/lewnotes/server/internal/index"
+	"github.com/caleblewallen/lewnotes/server/internal/vault"
 	"github.com/caleblewallen/lewnotes/server/internal/version"
 )
 
@@ -26,9 +30,15 @@ func main() {
 }
 
 func run() error {
-	listen := flag.String("listen", envOr("LEWNOTES_LISTEN", ":8080"), "address to listen on")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	healthcheck := flag.Bool("healthcheck", false, "probe the local health endpoint and exit")
+	var (
+		configPath  = flag.String("config", "", "path to lewnotes.toml (default: ./lewnotes.toml if present)")
+		listen      = flag.String("listen", "", "override the listen address")
+		vaultPath   = flag.String("vault", "", "override the vault path")
+		dataDir     = flag.String("data-dir", "", "override the data directory")
+		showVersion = flag.Bool("version", false, "print version and exit")
+		healthcheck = flag.Bool("healthcheck", false, "probe the local health endpoint and exit")
+		rebuild     = flag.Bool("rebuild-index", false, "rescan every note on startup")
+	)
 	flag.Parse()
 
 	if *showVersion {
@@ -36,15 +46,86 @@ func run() error {
 		return nil
 	}
 	if *healthcheck {
-		return probeHealth(*listen)
+		addr := *listen
+		if addr == "" {
+			addr = envOr("LEWNOTES_LISTEN", ":8080")
+		}
+		return probeHealth(addr)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	if *listen != "" {
+		cfg.Server.Listen = *listen
+	}
+	if *vaultPath != "" {
+		cfg.Vault.Path = *vaultPath
+	}
+	if *dataDir != "" {
+		cfg.Server.DataDir = *dataDir
+	}
+	if err := cfg.Normalize(); err != nil {
+		return err
+	}
+
+	logger, err := newLogger(cfg.Server.LogLevel)
+	if err != nil {
+		return err
+	}
 	slog.SetDefault(logger)
 
+	v, err := vault.Open(cfg.Vault.Path, cfg.Vault.Ignore)
+	if err != nil {
+		return err
+	}
+	for _, dir := range []string{cfg.Vault.Inbox, cfg.Vault.Attachments} {
+		if dir == "" {
+			continue
+		}
+		if err := v.EnsureDir(dir); err != nil {
+			return err
+		}
+	}
+
+	dbPath := filepath.Join(cfg.Server.DataDir, "lewnotes.db")
+	ix, err := index.Open(dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := ix.Close(); err != nil {
+			logger.Error("close index", "error", err)
+		}
+	}()
+
+	scanner := index.NewScanner(v, ix, logger)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if _, err := scanner.Run(ctx, *rebuild); err != nil {
+			logger.Error("initial index scan failed", "error", err)
+		}
+	}()
+
+	logger.Info("starting",
+		"version", version.Version,
+		"vault", v.Root(),
+		"database", dbPath,
+		"listen", cfg.Server.Listen,
+		"config", cfg.Source,
+	)
+
 	srv := &http.Server{
-		Addr:              *listen,
-		Handler:           api.NewRouter(api.Options{Version: version.Version, Started: time.Now(), Logger: logger}),
+		Addr: cfg.Server.Listen,
+		Handler: api.NewRouter(api.Options{
+			Version: version.Version,
+			Started: time.Now(),
+			Logger:  logger,
+			Index:   ix,
+			Scanner: scanner,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -53,7 +134,6 @@ func run() error {
 
 	errs := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", *listen, "version", version.Version)
 		errs <- srv.ListenAndServe()
 	}()
 
@@ -70,6 +150,14 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func newLogger(level string) (*slog.Logger, error) {
+	var l slog.Level
+	if err := l.UnmarshalText([]byte(level)); err != nil {
+		return nil, fmt.Errorf("log level %q: %w", level, err)
+	}
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l})), nil
 }
 
 func probeHealth(listen string) error {

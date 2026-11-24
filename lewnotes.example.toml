@@ -6,6 +6,8 @@
 
 [server]
 listen = ":8080"
+# Holds lewnotes.db (the rebuildable index). Never inside the vault.
+data_dir = "./data"
 # Honor X-Forwarded-Proto/Host. Enable only behind a trusted reverse proxy.
 trust_proxy = false
 # Used to display/embed absolute URLs when proxy headers are unavailable.

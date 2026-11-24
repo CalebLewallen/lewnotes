@@ -735,6 +735,7 @@ Flags (server binary) > `LEWNOTES_*` env > `lewnotes.toml` > defaults. Full exam
 ```toml
 [server]
 listen = ":8080"
+data_dir = "/data"
 trust_proxy = false
 public_url = ""            # only used to display/embed URLs when proxy headers are unavailable
 log_level = "info"

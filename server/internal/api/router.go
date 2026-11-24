@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/caleblewallen/lewnotes/server/internal/index"
 )
 
 // Options configures the root handler.
@@ -16,6 +18,8 @@ type Options struct {
 	Version string
 	Started time.Time
 	Logger  *slog.Logger
+	Index   *index.Index
+	Scanner *index.Scanner
 }
 
 type healthResponse struct {
@@ -49,6 +53,9 @@ func NewRouter(opts Options) http.Handler {
 			UptimeSeconds: time.Since(opts.Started).Seconds(),
 		})
 	})
+
+	mux.HandleFunc("GET /api/v1/index/status", handleIndexStatus(opts))
+	mux.HandleFunc("POST /api/v1/index/rescan", handleIndexRescan(opts))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, http.StatusNotFound, "not_found", "No route matches this path.")
