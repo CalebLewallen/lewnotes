@@ -481,7 +481,7 @@ Mechanics:
 
 Single account. Two credential types, one authorization check:
 
-- **Session** (web): opaque 32-byte session ID in an `HttpOnly; Secure; SameSite=Lax; Path=/` cookie, 30-day sliding expiry, row in `sessions`, revoked on logout/password change.
+- **Session** (web): opaque 32-byte session ID in an `HttpOnly; Secure; SameSite=Lax; Path=/` cookie, 30-day sliding expiry, row in `sessions`, revoked on logout/password change. The database stores `sha256(session_id)` rather than the cookie value, so a leaked database does not hand over live sessions; each session also carries a CSRF token compared against `X-Lewnotes-CSRF` on cookie-authenticated mutations.
 - **Device token** (CLI/TUI/agents): long-lived bearer token, hashed at rest, listed and revoked in the web UI.
 
 Both resolve to the same `user_id`; there are no roles. CSRF: `SameSite=Lax` plus a double-submit token header (`X-Lewnotes-CSRF`) on state-changing cookie-authenticated requests. CORS: same-origin only by default, `auth.allowed_origins` for exceptions.
@@ -805,7 +805,7 @@ allowed_origins = []
 
 ## 18. Open questions (deliberately unresolved)
 
-1. **Token scopes.** Long-lived tokens have full access; a read-only scope for agents and a todo-only scope would reduce blast radius. Needs a decision before M3 ships tokens.
+1. **Token scopes.** ~~Long-lived tokens have full access; a read-only scope for agents and a todo-only scope would reduce blast radius.~~ **Resolved in S2 (v1):** all tokens are full-access. `api_tokens.scope` exists, defaults to `full`, and is returned by `/auth/me` and `/tokens`, so adding `read`/`todos` scopes later is a middleware change rather than a migration. Deferred until a client actually needs a narrower scope.
 2. **Keyring vs plaintext config** for CLI credential storage on headless servers.
 3. **Soft delete vs hard delete** and trash retention policy (§7.6).
 4. **Git history:** optional auto-commit per write (`history.git = true`) is attractive for a file vault but adds lock/performance complexity.

@@ -11,6 +11,7 @@ import (
 var envKeys = []string{
 	"LEWNOTES_LISTEN", "LEWNOTES_DATA_DIR", "LEWNOTES_LOG_LEVEL", "LEWNOTES_PUBLIC_URL",
 	"LEWNOTES_TRUST_PROXY", "LEWNOTES_VAULT", "LEWNOTES_COOKIE_SECURE", "LEWNOTES_SESSION_TTL",
+	"LEWNOTES_TOKEN_LAST_USED_INTERVAL",
 }
 
 func clearEnv(t *testing.T) {
@@ -47,6 +48,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if cfg.Auth.SessionTTL.Std() != 720*time.Hour {
 		t.Errorf("session ttl = %v", cfg.Auth.SessionTTL.Std())
+	}
+	if cfg.Auth.TokenLastUsedInterval.Std() != time.Hour {
+		t.Errorf("token last-used interval = %v", cfg.Auth.TokenLastUsedInterval.Std())
 	}
 }
 

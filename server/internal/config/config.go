@@ -83,9 +83,10 @@ type Attachments struct {
 }
 
 type Auth struct {
-	SessionTTL     Duration `toml:"session_ttl"`
-	CookieSecure   bool     `toml:"cookie_secure"`
-	AllowedOrigins []string `toml:"allowed_origins"`
+	SessionTTL            Duration `toml:"session_ttl"`
+	TokenLastUsedInterval Duration `toml:"token_last_used_interval"`
+	CookieSecure          bool     `toml:"cookie_secure"`
+	AllowedOrigins        []string `toml:"allowed_origins"`
 }
 
 // Default returns the built-in defaults. These are valid on their own so that a
@@ -113,8 +114,9 @@ func Default() *Config {
 			NameStrategy: "original",
 		},
 		Auth: Auth{
-			SessionTTL:   Duration(720 * time.Hour),
-			CookieSecure: true,
+			SessionTTL:            Duration(720 * time.Hour),
+			TokenLastUsedInterval: Duration(time.Hour),
+			CookieSecure:          true,
 		},
 	}
 }
@@ -209,6 +211,14 @@ func applyEnv(cfg *Config, sources map[string]string) error {
 			cfg.Auth.SessionTTL = Duration(d)
 			return nil
 		}},
+		{"LEWNOTES_TOKEN_LAST_USED_INTERVAL", "auth.token_last_used_interval", func(v string) error {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return err
+			}
+			cfg.Auth.TokenLastUsedInterval = Duration(d)
+			return nil
+		}},
 	}
 
 	for _, o := range overrides {
@@ -268,6 +278,9 @@ func (c *Config) validate(sources map[string]string) error {
 	}
 	if c.Auth.SessionTTL.Std() <= 0 {
 		add("auth.session_ttl", "must be > 0")
+	}
+	if c.Auth.TokenLastUsedInterval.Std() <= 0 {
+		add("auth.token_last_used_interval", "must be > 0")
 	}
 
 	return errors.Join(errs...)

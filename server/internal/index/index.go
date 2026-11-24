@@ -109,6 +109,10 @@ func (ix *Index) Close() error { return ix.db.Close() }
 // Path is the database file location.
 func (ix *Index) Path() string { return ix.path }
 
+// DB exposes the shared single-connection pool for server-only state such as
+// auth. Handlers must not open their own connections.
+func (ix *Index) DB() *sql.DB { return ix.db }
+
 // UpsertNote writes one note and refreshes its tags and FTS row.
 func (ix *Index) UpsertNote(ctx context.Context, n Note) error {
 	frontmatter, err := json.Marshal(n.Frontmatter)

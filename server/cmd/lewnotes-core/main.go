@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/caleblewallen/lewnotes/server/internal/api"
+	"github.com/caleblewallen/lewnotes/server/internal/auth"
 	"github.com/caleblewallen/lewnotes/server/internal/config"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
 	"github.com/caleblewallen/lewnotes/server/internal/vault"
@@ -100,6 +101,16 @@ func run() error {
 		}
 	}()
 
+	authService, err := auth.NewService(auth.ServiceOptions{
+		Store:                 auth.NewStore(ix.DB()),
+		SessionTTL:            cfg.Auth.SessionTTL.Std(),
+		TokenLastUsedInterval: cfg.Auth.TokenLastUsedInterval.Std(),
+		CookieSecure:          cfg.Auth.CookieSecure,
+	})
+	if err != nil {
+		return err
+	}
+
 	scanner := index.NewScanner(v, ix, logger)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -120,11 +131,14 @@ func run() error {
 	srv := &http.Server{
 		Addr: cfg.Server.Listen,
 		Handler: api.NewRouter(api.Options{
-			Version: version.Version,
-			Started: time.Now(),
-			Logger:  logger,
-			Index:   ix,
-			Scanner: scanner,
+			Version:    version.Version,
+			Started:    time.Now(),
+			Logger:     logger,
+			Index:      ix,
+			Scanner:    scanner,
+			Auth:       authService,
+			TrustProxy: cfg.Server.TrustProxy,
+			PublicURL:  cfg.Server.PublicURL,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

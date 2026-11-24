@@ -18,7 +18,7 @@ Goal of this plan: reach a testable vertical slice fast — **auth and notes in 
 |---|---|---|---|
 | S0 | Scaffold, skills, and repo | — | ✅ done |
 | S1 | Core plumbing: config, vault FS, SQLite, scan | S0 | ✅ done |
-| S2 | Auth in core | S1 | ⬜ |
+| S2 | Auth in core | S1 | ✅ done |
 | S3 | Notes in core: CRUD, links, search, SSE | S2 | ⬜ |
 | S4 | Web UI on the notes API | S3 | ⬜ |
 | S5 | CLI + agent surface | S3 (S2 for login) | ⬜ |
@@ -75,7 +75,9 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 ---
 
-## S2 — Auth in core
+## S2 — Auth in core ✅
+
+**Delivered 2026-11-24:** `0002_auth.sql` (users, sessions, api_tokens), `internal/auth` (argon2id PHC hashing, `lnt.` token encode/decode, sessions with hashed IDs, device tokens, in-memory rate limiting), default-deny middleware over `/api/v1/*` with CSRF for cookie mutations, and `/auth/{status,setup,login,logout,me,password}` plus `/tokens` CRUD. Verified with race-enabled tests and `server/testdata/scripts/auth.sh` against a live server, including a log scan for leaked secrets.
 
 **Goal:** only a password-holding owner can read or write anything; device tokens exist and are safe.
 
@@ -258,4 +260,4 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 ## Next action
 
-Start **S2 (auth in core):** decide token scopes, then build `0002_auth.sql`, argon2id, sessions + CSRF, the `lnt.` device-token format, rate limiting, and the `/auth/*` + `/tokens` routes. The index routes stay open until the middleware lands in this slice.
+Start **S3 (notes in core):** `internal/notes` (CRUD, ETag/`If-Match`, atomic writes), link parsing/resolution, search grammar over FTS5, and the SSE hub — then generate the OpenAPI document and client types from the handlers. Auth is in place, so every new route is protected by default.

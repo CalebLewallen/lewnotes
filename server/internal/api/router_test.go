@@ -38,7 +38,7 @@ func TestHealth(t *testing.T) {
 
 func TestUnknownRouteIsProblemJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
-	newTestRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/nope", nil))
+	newTestRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/no-such-page", nil))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -53,5 +53,13 @@ func TestUnknownRouteIsProblemJSON(t *testing.T) {
 	}
 	if body.Status != http.StatusNotFound || body.Detail == "" {
 		t.Fatalf("body = %+v, want status=404 with detail", body)
+	}
+}
+
+func TestUnknownAPIRouteRequiresAuth(t *testing.T) {
+	env := newTestEnv(t, 5)
+	rec := env.anon().do(http.MethodGet, "/api/v1/nope", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 so route probing cannot bypass auth", rec.Code)
 	}
 }

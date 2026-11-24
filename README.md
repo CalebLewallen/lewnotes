@@ -4,7 +4,7 @@ A self-hostable, single-tenant notes server built on plain files: markdown notes
 
 The defining idea is **data-first**: the HTTP API is the product, and every interface is a peer client over it. Nothing about the web UI is special.
 
-> **Status:** pre-alpha. The server owns a vault directory, indexes markdown notes into SQLite, assigns stable frontmatter IDs, and exposes `GET /api/v1/health`, `GET /api/v1/index/status`, and `POST /api/v1/index/rescan`. Auth and the notes API are the next slices — until then **the index routes are unauthenticated; do not expose this build to the internet.**
+> **Status:** pre-alpha. The server owns a vault directory, indexes markdown notes into SQLite, assigns stable frontmatter IDs, and now requires authentication: a first-run owner setup, cookie sessions, and hashed `lnt.` device tokens. Every `/api/v1/*` route is private except health, setup, login, and auth status. Notes CRUD and search are next.
 
 ## Documents
 
@@ -34,9 +34,19 @@ cd server && go run ./cmd/lewnotes-core -vault ../vault -data-dir ../data
 cd web && npm install && npm run dev
 ```
 
+First boot has no owner. Create one with `POST /api/v1/auth/setup` (`{"password":"…","instance_name":"home"}`), then sign in with `POST /api/v1/auth/login`; both set the session and CSRF cookies. The end-to-end curl walkthrough lives in [`server/testdata/scripts/auth.sh`](server/testdata/scripts/auth.sh) and never prints the token it creates.
+
+For plain-http local development set `LEWNOTES_COOKIE_SECURE=false` (cookies default to `Secure`).
+
 ```bash
 curl -s localhost:8080/api/v1/health | jq
-curl -s localhost:8080/api/v1/index/status | jq
+curl -s localhost:8080/api/v1/auth/status | jq
+
+# The index is private: sign in first (or send a bearer token).
+curl -s -c /tmp/lewnotes.jar -H 'Content-Type: application/json' \
+  -d '{"password":"…"}' localhost:8080/api/v1/auth/login | jq
+curl -s -b /tmp/lewnotes.jar localhost:8080/api/v1/index/status | jq
+
 cd cli && go run ./cmd/lewnotes version --json
 ```
 

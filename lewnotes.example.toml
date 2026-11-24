@@ -39,6 +39,8 @@ name_strategy = "original"
 
 [auth]
 session_ttl = "720h"
+# Minimum interval between writes of a token's last_used_at.
+token_last_used_interval = "1h"
 cookie_secure = true
 # Only set for local development over plain HTTP.
 allowed_origins = []

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/caleblewallen/lewnotes/server/internal/auth"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
 )
 
@@ -20,6 +21,14 @@ type Options struct {
 	Logger  *slog.Logger
 	Index   *index.Index
 	Scanner *index.Scanner
+
+	Auth       *auth.Service
+	TrustProxy bool
+	PublicURL  string
+
+	LoginLimiter   *auth.Limiter
+	VerifyLimiter  *auth.Limiter
+	GeneralLimiter *auth.Limiter
 }
 
 type healthResponse struct {
@@ -43,6 +52,15 @@ func NewRouter(opts Options) http.Handler {
 	if opts.Started.IsZero() {
 		opts.Started = time.Now()
 	}
+	if opts.LoginLimiter == nil {
+		opts.LoginLimiter = auth.NewLimiter(auth.LimiterOptions{Limit: 5, Window: time.Minute})
+	}
+	if opts.VerifyLimiter == nil {
+		opts.VerifyLimiter = auth.NewLimiter(auth.LimiterOptions{Limit: 30, Window: time.Minute})
+	}
+	if opts.GeneralLimiter == nil {
+		opts.GeneralLimiter = auth.NewLimiter(auth.LimiterOptions{Limit: 600, Window: time.Minute})
+	}
 
 	mux := http.NewServeMux()
 
@@ -57,11 +75,22 @@ func NewRouter(opts Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/index/status", handleIndexStatus(opts))
 	mux.HandleFunc("POST /api/v1/index/rescan", handleIndexRescan(opts))
 
+	mux.HandleFunc("GET /api/v1/auth/status", handleAuthStatus(opts))
+	mux.HandleFunc("POST /api/v1/auth/setup", handleSetup(opts))
+	mux.HandleFunc("POST /api/v1/auth/login", handleLogin(opts))
+	mux.HandleFunc("POST /api/v1/auth/logout", handleLogout(opts))
+	mux.HandleFunc("GET /api/v1/auth/me", handleMe(opts))
+	mux.HandleFunc("POST /api/v1/auth/password", handlePassword(opts))
+
+	mux.HandleFunc("GET /api/v1/tokens", handleListTokens(opts))
+	mux.HandleFunc("POST /api/v1/tokens", handleCreateToken(opts))
+	mux.HandleFunc("DELETE /api/v1/tokens/{id}", handleDeleteToken(opts))
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, http.StatusNotFound, "not_found", "No route matches this path.")
 	})
 
-	return recoverPanics(opts.Logger, requestLogger(opts.Logger, securityHeaders(mux)))
+	return recoverPanics(opts.Logger, requestLogger(opts.Logger, securityHeaders(authMiddleware(opts, mux))))
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

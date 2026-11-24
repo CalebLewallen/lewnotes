@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,11 +13,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caleblewallen/lewnotes/server/internal/auth"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
 	"github.com/caleblewallen/lewnotes/server/internal/vault"
 )
 
-func testIndexAPI(t *testing.T) (http.Handler, *index.Index) {
+// authedHandler injects a valid session (and CSRF header on mutations) so the
+// existing index tests keep testing the index rather than auth.
+type authedHandler struct {
+	next   http.Handler
+	cookie *http.Cookie
+	csrf   string
+}
+
+func (a *authedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r.AddCookie(a.cookie)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		r.Header.Set(auth.CSRFHeader, a.csrf)
+	}
+	a.next.ServeHTTP(w, r)
+}
+
+func testRouter(t *testing.T, withIndex, withScanner bool) (http.Handler, *index.Index) {
 	t.Helper()
 
 	vaultDir := t.TempDir()
@@ -34,15 +52,37 @@ func testIndexAPI(t *testing.T) (http.Handler, *index.Index) {
 	t.Cleanup(func() { _ = ix.Close() })
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	scanner := index.NewScanner(v, ix, logger)
-	router := NewRouter(Options{
-		Version: "test",
-		Started: time.Now(),
-		Logger:  logger,
-		Index:   ix,
-		Scanner: scanner,
+	svc, err := auth.NewService(auth.ServiceOptions{
+		Store:  auth.NewStore(ix.DB()),
+		Argon2: testArgon2,
 	})
-	return router, ix
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := svc.Setup(context.Background(), testPassword, "test", auth.RequestMeta{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{Version: "test", Started: time.Now(), Logger: logger, Auth: svc}
+	if withIndex {
+		opts.Index = ix
+	}
+	if withScanner {
+		opts.Scanner = index.NewScanner(v, ix, logger)
+	}
+
+	router := NewRouter(opts)
+	return &authedHandler{
+		next:   router,
+		cookie: &http.Cookie{Name: auth.SessionCookieName, Value: session.Token},
+		csrf:   session.CSRF,
+	}, ix
+}
+
+func testIndexAPI(t *testing.T) (http.Handler, *index.Index) {
+	t.Helper()
+	return testRouter(t, true, true)
 }
 
 func getStatus(t *testing.T, router http.Handler) index.ScanStatus {
@@ -104,8 +144,10 @@ func TestRescanRejectsInvalidBody(t *testing.T) {
 }
 
 func TestIndexRoutesUnavailableWithoutIndex(t *testing.T) {
+	router, _ := testRouter(t, false, false)
+
 	rec := httptest.NewRecorder()
-	newTestRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/index/status", nil))
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/index/status", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status code = %d, want 503 when the index is not wired", rec.Code)
 	}
