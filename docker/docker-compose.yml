@@ -1,0 +1,19 @@
+# Development / self-host compose file.
+# Vault and database live in ./data, which is gitignored.
+
+services:
+  lewnotes:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: lewnotes:dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      LEWNOTES_VAULT: /data/vault
+      LEWNOTES_DATA_DIR: /data
+      LEWNOTES_LISTEN: ":8080"
+      LEWNOTES_TRUST_PROXY: "false"
+    volumes:
+      - ../data:/data

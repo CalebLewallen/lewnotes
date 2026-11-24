@@ -1,0 +1,42 @@
+# lewnotes configuration.
+#
+# Precedence: command-line flags > LEWNOTES_* environment variables > this file > defaults.
+# Copy to lewnotes.toml and edit. Slices implement these keys progressively; keys that are
+# not yet wired are ignored until their slice lands (see .agents/plans/).
+
+[server]
+listen = ":8080"
+# Honor X-Forwarded-Proto/Host. Enable only behind a trusted reverse proxy.
+trust_proxy = false
+# Used to display/embed absolute URLs when proxy headers are unavailable.
+public_url = ""
+log_level = "info"
+
+[vault]
+path = "/data/vault"
+inbox = "inbox"
+attachments = "attachments"
+ignore = [".obsidian/**", ".trash/**", "node_modules/**"]
+
+[index]
+# 0 disables the periodic drift check. The server is the only writer; this only logs.
+reconcile_interval = "0s"
+
+[todos]
+globs = ["todo.md", "todos/**/*.md"]
+archive_completed = false
+
+[search]
+snippet_length = 32
+
+[attachments]
+max_size_mb = 50
+allowed_mime = ["image/*", "application/pdf", "text/*"]
+# original | hashed
+name_strategy = "original"
+
+[auth]
+session_ttl = "720h"
+cookie_secure = true
+# Only set for local development over plain HTTP.
+allowed_origins = []

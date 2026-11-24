@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+
+/* Seed tokens. Full system lands with DESIGN.md in slice S4. */
+@theme {
+	--font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', monospace;
+	--color-surface: oklch(0.16 0.006 285);
+	--color-surface-raised: oklch(0.21 0.007 285);
+	--color-border-subtle: oklch(0.28 0.008 285);
+}
+
+@layer base {
+	html {
+		color-scheme: dark;
+	}
+
+	body {
+		@apply bg-surface font-sans text-neutral-100 antialiased;
+	}
+}

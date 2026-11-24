@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "skills": {
+    "golang-cli": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-cli/SKILL.md",
+      "computedHash": "7a706a3cd9dd80261dd5c39119a951b0aaffea4a647788524aa24f822e435cc3"
+    },
+    "golang-code-style": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-code-style/SKILL.md",
+      "computedHash": "8013e3aeeb53e66e8dd52a1dd2d2f622ed59cde7426fad7f42c77de7fca424f8"
+    },
+    "golang-concurrency": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-concurrency/SKILL.md",
+      "computedHash": "c6c1829be72bba6eb7b2346561bb895605c65eacf35a2535bfca9828006a69e0"
+    },
+    "golang-error-handling": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-error-handling/SKILL.md",
+      "computedHash": "81f5c3fcd0324c4ed9b8ee50d3375b0f3074b0308ee9b5c0778d6cbf32bedf9c"
+    },
+    "golang-security": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-security/SKILL.md",
+      "computedHash": "050d04076da4c392e80620b26688de64aab74da46f486f1fc784fa8a2f3b0444"
+    },
+    "golang-testing": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-testing/SKILL.md",
+      "computedHash": "adfaf95d45383e8e579de1770ea0f25d0729b3e94e0b003ea08d1646646f7247"
+    },
+    "shadcn": {
+      "source": "shadcn-ui/ui",
+      "commit": "055aa6b7837b1808456a24beb4c97a677864aa82",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "388962d16c7a4f13aaeee0d8f128e50a87df8553d42ef7988c39c0e1c74a40e8"
+    },
+    "svelte-components": {
+      "source": "spences10/svelte-skills-kit",
+      "commit": "5fe49891cf19b451c846ed613712c4d9545dd24f",
+      "sourceType": "github",
+      "skillPath": "plugins/svelte-skills/skills/svelte-components/SKILL.md",
+      "computedHash": "6823d427a52d2ff49c3c7ea91d24590bdac1d9518d5ed8f363394e288d011a20"
+    },
+    "svelte-runes": {
+      "source": "spences10/svelte-skills-kit",
+      "commit": "5fe49891cf19b451c846ed613712c4d9545dd24f",
+      "sourceType": "github",
+      "skillPath": "plugins/svelte-skills/skills/svelte-runes/SKILL.md",
+      "computedHash": "087cfe1ce958d153d6ea6b57805f538176a3b741a860058fa48d0b602106dd1f"
+    },
+    "svelte-styling": {
+      "source": "spences10/svelte-skills-kit",
+      "commit": "5fe49891cf19b451c846ed613712c4d9545dd24f",
+      "sourceType": "github",
+      "skillPath": "plugins/svelte-skills/skills/svelte-styling/SKILL.md",
+      "computedHash": "7aa130c64f454b33d7879523986049a51056df29a210e2480483bb9458c51dd4"
+    },
+    "sveltekit-data-flow": {
+      "source": "spences10/svelte-skills-kit",
+      "commit": "5fe49891cf19b451c846ed613712c4d9545dd24f",
+      "sourceType": "github",
+      "skillPath": "plugins/svelte-skills/skills/sveltekit-data-flow/SKILL.md",
+      "computedHash": "83560ccf4973bf7118061b59888cca4cd84a0a707b319ceda70b719f6a587505"
+    },
+    "sveltekit-structure": {
+      "source": "spences10/svelte-skills-kit",
+      "commit": "5fe49891cf19b451c846ed613712c4d9545dd24f",
+      "sourceType": "github",
+      "skillPath": "plugins/svelte-skills/skills/sveltekit-structure/SKILL.md",
+      "computedHash": "7d82bc73da1f75949e6ff18519bc9a00457dffbbbc79ad859ed23960423c84dd"
+    }
+  }
+}
