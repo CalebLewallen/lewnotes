@@ -268,11 +268,16 @@ func (v *Vault) EnsureDir(rel string) error {
 	return nil
 }
 
-// List returns the sorted contents of one directory.
+// List returns the sorted contents of one directory. An empty rel lists the
+// vault root.
 func (v *Vault) List(rel string) ([]Entry, error) {
-	full, err := v.Resolve(rel)
-	if err != nil {
-		return nil, err
+	full := v.root
+	if rel != "" {
+		resolved, err := v.Resolve(rel)
+		if err != nil {
+			return nil, err
+		}
+		full = resolved
 	}
 	items, err := os.ReadDir(full)
 	if err != nil {

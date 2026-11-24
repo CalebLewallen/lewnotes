@@ -18,7 +18,9 @@ import (
 	"github.com/caleblewallen/lewnotes/server/internal/api"
 	"github.com/caleblewallen/lewnotes/server/internal/auth"
 	"github.com/caleblewallen/lewnotes/server/internal/config"
+	"github.com/caleblewallen/lewnotes/server/internal/events"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
+	"github.com/caleblewallen/lewnotes/server/internal/notes"
 	"github.com/caleblewallen/lewnotes/server/internal/vault"
 	"github.com/caleblewallen/lewnotes/server/internal/version"
 )
@@ -111,6 +113,14 @@ func run() error {
 		return err
 	}
 
+	hub := events.New(events.Options{Buffer: 1000})
+	noteService := notes.New(notes.Options{
+		Vault:  v,
+		Index:  ix,
+		Events: hub,
+		Logger: logger,
+	})
+
 	scanner := index.NewScanner(v, ix, logger)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -137,6 +147,8 @@ func run() error {
 			Index:      ix,
 			Scanner:    scanner,
 			Auth:       authService,
+			Notes:      noteService,
+			Events:     hub,
 			TrustProxy: cfg.Server.TrustProxy,
 			PublicURL:  cfg.Server.PublicURL,
 		}),

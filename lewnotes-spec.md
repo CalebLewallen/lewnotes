@@ -366,9 +366,9 @@ FTS5 tables use external content + triggers (or are rebuilt on scan) so note edi
 - Base: `/api/v1`. JSON only, UTF-8. Timestamps RFC 3339 UTC.
 - Errors: `application/problem+json` (RFC 9457): `{type, title, status, detail, instance, errors[]}`.
 - Auth: cookie session (web) or `Authorization: Bearer <token>` (CLI/TUI/agents). Every route except `/api/v1/health`, `/api/v1/auth/setup` (pre-setup), `/api/v1/auth/login`, and the SPA shell requires auth.
-- OpenAPI 3.1 document generated from Go types (`huma`-style or hand-written with `oapi-codegen`); served at `/api/v1/openapi.json`, checked in at `server/openapi/openapi.yaml`, used to generate the TS and Go clients.
+- OpenAPI 3.1 document is hand-written at `server/internal/api/openapi.json`, embedded and served at `/api/v1/openapi.json`. A Go test fails when a registered route is missing from it. Generated TS/Go clients are deferred to the CLI slice; the S4a web client is a small typed wrapper.
 - Pagination: `?limit=&cursor=` for lists; `?limit=0` means ids only.
-- Capability discovery: `GET /api/v1/meta` → `{version, vault_name, limits:{max_upload_mb, max_note_bytes}, features:["todos","whiteboards","sse"]}` so clients negotiate features instead of guessing.
+- Capability discovery: `GET /api/v1/meta` → `{version, instance_name, limits:{max_note_bytes}, features:["notes","wikilinks","search","tree","sse"]}` so clients negotiate features instead of guessing. The feature list grows as slices land.
 
 ### 10.2 Notes
 

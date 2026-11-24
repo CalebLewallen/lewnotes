@@ -14,7 +14,10 @@ import (
 	"time"
 
 	"github.com/caleblewallen/lewnotes/server/internal/auth"
+	"github.com/caleblewallen/lewnotes/server/internal/events"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
+	"github.com/caleblewallen/lewnotes/server/internal/notes"
+	"github.com/caleblewallen/lewnotes/server/internal/vault"
 )
 
 const testPassword = "correct horse battery staple"
@@ -42,6 +45,8 @@ type testEnv struct {
 	handler http.Handler
 	ix      *index.Index
 	svc     *auth.Service
+	notes   *notes.Service
+	hub     *events.Hub
 	logs    *bytes.Buffer
 	clock   *testClock
 }
@@ -68,15 +73,24 @@ func newTestEnv(t *testing.T, loginLimit int) *testEnv {
 		t.Fatalf("auth.NewService() error = %v", err)
 	}
 
+	v, err := vault.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("vault.Open() error = %v", err)
+	}
+	hub := events.New(events.Options{Buffer: 100})
+	noteSvc := notes.New(notes.Options{Vault: v, Index: ix, Events: hub, Logger: logger})
+
 	handler := NewRouter(Options{
 		Version:      "test",
 		Started:      clock.Now(),
 		Logger:       logger,
 		Index:        ix,
 		Auth:         svc,
+		Notes:        noteSvc,
+		Events:       hub,
 		LoginLimiter: auth.NewLimiter(auth.LimiterOptions{Limit: loginLimit, Window: time.Minute, Now: clock.Now}),
 	})
-	return &testEnv{handler: handler, ix: ix, svc: svc, logs: logs, clock: clock}
+	return &testEnv{handler: handler, ix: ix, svc: svc, notes: noteSvc, hub: hub, logs: logs, clock: clock}
 }
 
 type testClient struct {
@@ -236,6 +250,16 @@ func TestProtectedRoutesRequireAuth(t *testing.T) {
 		{http.MethodGet, "/api/v1/tokens"},
 		{http.MethodPost, "/api/v1/tokens"},
 		{http.MethodDelete, "/api/v1/tokens/01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+		{http.MethodGet, "/api/v1/meta"},
+		{http.MethodGet, "/api/v1/notes"},
+		{http.MethodPost, "/api/v1/notes"},
+		{http.MethodGet, "/api/v1/notes/01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+		{http.MethodGet, "/api/v1/notes/by-path?path=a.md"},
+		{http.MethodGet, "/api/v1/tree"},
+		{http.MethodGet, "/api/v1/files/a.png"},
+		{http.MethodGet, "/api/v1/search?q=hello"},
+		{http.MethodGet, "/api/v1/events"},
+		{http.MethodGet, "/api/v1/openapi.json"},
 		{http.MethodGet, "/api/v1/does-not-exist"},
 	}
 	for _, route := range protected {

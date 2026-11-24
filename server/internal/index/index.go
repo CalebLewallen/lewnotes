@@ -177,6 +177,12 @@ func (ix *Index) DeleteNote(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM notes_fts WHERE note_id = ?`, id); err != nil {
 		return fmt.Errorf("delete fts row: %w", err)
 	}
+	// Keep dangling links visible as ghosts after their target is deleted.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE links SET dst_id = NULL, resolution = 'unresolved', candidates = '[]'
+		WHERE dst_id = ?`, id); err != nil {
+		return fmt.Errorf("nullify inbound links: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM notes WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("delete note: %w", err)
 	}

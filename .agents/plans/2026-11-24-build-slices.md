@@ -19,8 +19,9 @@ Goal of this plan: reach a testable vertical slice fast — **auth and notes in 
 | S0 | Scaffold, skills, and repo | — | ✅ done |
 | S1 | Core plumbing: config, vault FS, SQLite, scan | S0 | ✅ done |
 | S2 | Auth in core | S1 | ✅ done |
-| S3 | Notes in core: CRUD, links, search, SSE | S2 | ⬜ |
-| S4 | Web UI on the notes API | S3 | ⬜ |
+| S3 | Notes in core: CRUD, links, search, SSE | S2 | ✅ done |
+| S4a | Web UI: login + read-only browsing | S3 | ✅ done |
+| S4b | Web UI: editor, palette, conflicts, SPA embed | S4a | ⬜ |
 | S5 | CLI + agent surface | S3 (S2 for login) | ⬜ |
 | S6 | Attachments end to end | S3, S4 | ⬜ |
 | S7 | Todos | S3 | ⬜ |
@@ -105,7 +106,9 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 ---
 
-## S3 — Notes in core: CRUD, links, search, SSE
+## S3 — Notes in core: CRUD, links, search, SSE ✅
+
+**Delivered 2026-11-24:** `0003_links.sql` (line numbers, ambiguity candidates, reverse indexes), `internal/links` (parse/alias/fragment/embed, exact → unique suffix → unresolved/ambiguous), `internal/notes` (create/read/list/update/patch/move/delete, ETags and `If-Match`, trash, tree, raw files, rewrite-on-rename), index queries and link indexing in the scanner, `internal/search` grammar + FTS5 with title boost and snippets, `internal/events` ring buffer/replay/resync, all note/tree/file/search/events/meta routes, and a hand-written OpenAPI document whose route coverage is tested. Verified with unit/API tests, `go test -race ./...`, and a live `notes.sh` smoke. Web UI consumes this API in S4a.
 
 **Goal:** the full notes API the web UI will consume, tested without a browser.
 
@@ -116,8 +119,8 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 3. `internal/links`: parser (wikilinks, aliases, fragments, embeds), resolver (exact → shortest unique suffix → unresolved/ambiguous), reverse index on write, rewrite-on-rename.
 4. `internal/search`: query grammar → FTS5 (`bm25`, title boost), typed results (note/todo/attachment), snippets with highlight spans.
 5. `internal/events`: SSE hub, ring buffer (1000), `Last-Event-ID` replay, heartbeat, `origin` from `X-Lewnotes-Client`; emit on every mutation.
-6. API contract: adopt generated OpenAPI. **Decision:** `huma v2` on `net/http` for typed handlers + schema generation, served at `/api/v1/openapi.json`; if it fights the mux, fall back to hand-written `openapi.yaml` + CI diff check. Record the choice in the spec.
-7. Regenerate `web/` and `cli/client` types from the spec (the TS side can wait for S4).
+6. API contract: **decision:** hand-written `server/internal/api/openapi.json`, embedded and served at `/api/v1/openapi.json`. A Go test compares it against the route table, so a new route cannot ship undocumented. Recorded in spec §10.1.
+7. Regenerate `cli/client` types from the spec (deferred to S5); the S4a web client is a small typed `fetch` wrapper.
 
 **Done when**
 
@@ -135,6 +138,10 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 ## S4 — Web UI on the notes API (first usable build)
 
 **Goal:** sign in from a browser, browse/edit/search notes with links and backlinks, and handle conflicts. This is where manual testing starts.
+
+**S4a delivered 2026-11-24 (steering stop):** `DESIGN.md`; hand-built primitives on the design tokens instead of the shadcn CLI; typed API wrapper with credentials, CSRF, and problem+json errors; `/setup`, `/login`, guarded app shell with sidebar tree/filter and mobile drawer; read-only `/n/<path>` with sanitized markdown, API-resolved wikilinks, unresolved-link list, and backlinks; recent-note list; logout. Verified `npm run check`, `npm run build`, and a live dev-proxy/API smoke. Tasks 1, 3, 4, 10 and the read half of task 5 are done; the rest is S4b.
+
+**Remaining S4b:** editor + autosave/ETag, backlinks actions/ghost create, rename dialog, ⌘K search, conflict diff, SSE client refresh, generated clients, and `go:embed` of the built SPA.
 
 **Tasks**
 
@@ -260,4 +267,4 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 ## Next action
 
-Start **S3 (notes in core):** `internal/notes` (CRUD, ETag/`If-Match`, atomic writes), link parsing/resolution, search grammar over FTS5, and the SSE hub — then generate the OpenAPI document and client types from the handlers. Auth is in place, so every new route is protected by default.
+Continue **S4b** after steering: editor with explicit save/autosave and `If-Match`, command-palette search, rename + ghost-link flows, 412 conflict diff, SSE refresh, then embed the built SPA in `lewnotes-core`. The S4a read-only UI is the point to review interaction and visual direction before that work.

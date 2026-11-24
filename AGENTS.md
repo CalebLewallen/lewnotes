@@ -83,6 +83,6 @@ Install more with `npx skills add <owner/repo> --skill <name> -y` (project-local
 
 - Go: standard library first; `log/slog`; errors wrapped with context; `internal/` for non-public packages.
 - API: `/api/v1`, `application/problem+json` errors, RFC 3339 timestamps, cursor pagination.
-- Web: Svelte 5 runes only, TypeScript, shadcn-svelte primitives, dark-first tokens from `DESIGN.md`.
+- Web: Svelte 5 runes only, TypeScript, hand-built primitives on the dark-first tokens in `DESIGN.md` (shadcn-svelte optional, not required).
 - Tests: table-driven; fixture vaults under `testdata/`; no network in unit tests.
 - Commits: imperative subject, body explains *why*.

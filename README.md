@@ -4,7 +4,7 @@ A self-hostable, single-tenant notes server built on plain files: markdown notes
 
 The defining idea is **data-first**: the HTTP API is the product, and every interface is a peer client over it. Nothing about the web UI is special.
 
-> **Status:** pre-alpha. The server owns a vault directory, indexes markdown notes into SQLite, assigns stable frontmatter IDs, and now requires authentication: a first-run owner setup, cookie sessions, and hashed `lnt.` device tokens. Every `/api/v1/*` route is private except health, setup, login, and auth status. Notes CRUD and search are next.
+> **Status:** pre-alpha, first usable web build. The server owns a vault directory, indexes markdown notes into SQLite, assigns stable frontmatter IDs, and requires authentication everywhere. The notes API covers CRUD with ETag/`If-Match`, soft delete, wikilinks/backlinks, rename-with-rewrite, tree/files, FTS5 search, SSE events, and OpenAPI. The web UI can set up the owner, sign in, browse the tree, and read notes with resolved wikilinks. Editing, the command palette, conflicts, and SPA embedding are next.
 
 ## Documents
 
@@ -28,15 +28,16 @@ docker/   Dockerfile and compose file
 
 ```bash
 # API on :8080, with the vault in ./vault and the index in ./data
-cd server && go run ./cmd/lewnotes-core -vault ../vault -data-dir ../data
+cd server && LEWNOTES_COOKIE_SECURE=false \
+  go run ./cmd/lewnotes-core -vault ../vault -data-dir ../data
 
 # Web dev server on :5173, proxying /api to :8080
 cd web && npm install && npm run dev
 ```
 
-First boot has no owner. Create one with `POST /api/v1/auth/setup` (`{"password":"…","instance_name":"home"}`), then sign in with `POST /api/v1/auth/login`; both set the session and CSRF cookies. The end-to-end curl walkthrough lives in [`server/testdata/scripts/auth.sh`](server/testdata/scripts/auth.sh) and never prints the token it creates.
+Open <http://localhost:5173>. First boot redirects to `/setup`; create the owner, then the app opens on the notes list. The sidebar tree is the vault; select a note for the read-only reader with wikilinks and backlinks. Cookies default to `Secure`, so set `LEWNOTES_COOKIE_SECURE=false` for plain-http localhost — otherwise the browser session will not stick.
 
-For plain-http local development set `LEWNOTES_COOKIE_SECURE=false` (cookies default to `Secure`).
+Setup and login are also available directly: `POST /api/v1/auth/setup` (`{"password":"…","instance_name":"home"}`) and `POST /api/v1/auth/login`; both set the session and CSRF cookies. The end-to-end curl walkthroughs never print secrets: [`server/testdata/scripts/auth.sh`](server/testdata/scripts/auth.sh) and [`server/testdata/scripts/notes.sh`](server/testdata/scripts/notes.sh).
 
 ```bash
 curl -s localhost:8080/api/v1/health | jq
@@ -55,10 +56,15 @@ Notes are plain markdown; the server adds an `id:` ULID to frontmatter on first 
 ## Tests
 
 ```bash
-cd server && go test ./...
+cd server && gofmt -l . && go vet ./... && go test -race ./...
 cd cli && go test ./...
 cd web && npm run check && npm run build
+
+# Live API smoke against a running server (setup/login, notes, links, search, delete)
+LEWNOTES_URL=http://127.0.0.1:8080 server/testdata/scripts/notes.sh
 ```
+
+The SPA is still served by the Vite dev server. Embedding `web/build` in `lewnotes-core` lands with S4b; the static build already succeeds.
 
 ## License
 

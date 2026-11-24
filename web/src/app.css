@@ -7,6 +7,7 @@
 	--color-surface: oklch(0.16 0.006 285);
 	--color-surface-raised: oklch(0.21 0.007 285);
 	--color-border-subtle: oklch(0.28 0.008 285);
+	--color-muted: oklch(0.68 0.01 285);
 }
 
 @layer base {
@@ -17,4 +18,170 @@
 	body {
 		@apply bg-surface font-sans text-neutral-100 antialiased;
 	}
+
+	::selection {
+		background: oklch(0.45 0.08 245 / 0.6);
+	}
+}
+
+@layer components {
+	.field {
+		@apply border-border-subtle bg-surface focus:border-neutral-500 w-full rounded-md border px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 disabled:opacity-60;
+	}
+
+	.btn-primary {
+		@apply inline-flex items-center justify-center rounded-md bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50;
+	}
+
+	.btn-ghost {
+		@apply hover:bg-surface-raised inline-flex items-center justify-center rounded-md py-1.5 text-sm text-neutral-300 transition-colors;
+	}
+
+	.tree-link {
+		@apply hover:bg-surface-raised flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm text-neutral-300 transition-colors;
+	}
+
+	.tree-link-active {
+		@apply bg-surface-raised text-neutral-100;
+	}
+}
+
+/* Rendered markdown. These rules must be global because the HTML is injected. */
+.note-body {
+	line-height: 1.75;
+	color: oklch(0.88 0.006 285);
+	overflow-wrap: anywhere;
+}
+
+.note-body > :first-child {
+	margin-top: 0;
+}
+
+.note-body h1,
+.note-body h2,
+.note-body h3,
+.note-body h4 {
+	color: oklch(0.97 0.004 285);
+	font-weight: 600;
+	letter-spacing: -0.015em;
+	line-height: 1.25;
+	margin: 2rem 0 0.75rem;
+}
+
+.note-body h1 {
+	font-size: 1.75rem;
+}
+
+.note-body h2 {
+	font-size: 1.4rem;
+}
+
+.note-body h3 {
+	font-size: 1.15rem;
+}
+
+.note-body p,
+.note-body ul,
+.note-body ol,
+.note-body blockquote,
+.note-body pre,
+.note-body table {
+	margin: 1rem 0;
+}
+
+.note-body ul,
+.note-body ol {
+	padding-left: 1.4rem;
+}
+
+.note-body ul {
+	list-style: disc;
+}
+
+.note-body ol {
+	list-style: decimal;
+}
+
+.note-body li {
+	margin: 0.3rem 0;
+}
+
+.note-body a {
+	color: oklch(0.78 0.11 235);
+	text-decoration: underline;
+	text-decoration-color: oklch(0.45 0.06 235);
+	text-underline-offset: 3px;
+}
+
+.note-body a:hover {
+	color: oklch(0.86 0.1 235);
+}
+
+.note-body .wikilink.unresolved {
+	color: oklch(0.7 0.09 70);
+	border-bottom: 1px dashed oklch(0.5 0.08 70);
+	cursor: help;
+}
+
+.note-body strong {
+	color: oklch(0.96 0.004 285);
+	font-weight: 600;
+}
+
+.note-body blockquote {
+	border-left: 2px solid oklch(0.4 0.01 285);
+	color: oklch(0.72 0.01 285);
+	padding-left: 1rem;
+}
+
+.note-body code {
+	background: oklch(0.24 0.008 285);
+	border-radius: 0.25rem;
+	font-family: var(--font-mono);
+	font-size: 0.875em;
+	padding: 0.15rem 0.3rem;
+}
+
+.note-body pre {
+	background: oklch(0.2 0.007 285);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: 0.5rem;
+	overflow-x: auto;
+	padding: 1rem;
+}
+
+.note-body pre code {
+	background: transparent;
+	padding: 0;
+}
+
+.note-body hr {
+	border-color: var(--color-border-subtle);
+	margin: 2rem 0;
+}
+
+.note-body img {
+	border: 1px solid var(--color-border-subtle);
+	border-radius: 0.5rem;
+	height: auto;
+	max-width: 100%;
+}
+
+.note-body table {
+	border-collapse: collapse;
+	display: block;
+	overflow-x: auto;
+	width: 100%;
+}
+
+.note-body th,
+.note-body td {
+	border: 1px solid var(--color-border-subtle);
+	padding: 0.45rem 0.65rem;
+	text-align: left;
+}
+
+.note-body th {
+	background: oklch(0.22 0.007 285);
+	font-weight: 600;
 }

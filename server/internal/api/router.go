@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/caleblewallen/lewnotes/server/internal/auth"
+	"github.com/caleblewallen/lewnotes/server/internal/events"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
+	"github.com/caleblewallen/lewnotes/server/internal/notes"
 )
 
 // Options configures the root handler.
@@ -22,7 +24,10 @@ type Options struct {
 	Index   *index.Index
 	Scanner *index.Scanner
 
-	Auth       *auth.Service
+	Auth   *auth.Service
+	Notes  *notes.Service
+	Events *events.Hub
+
 	TrustProxy bool
 	PublicURL  string
 
@@ -44,6 +49,68 @@ type problem struct {
 	Detail string `json:"detail"`
 }
 
+type routeSpec struct {
+	Method  string
+	Pattern string
+	Handler http.HandlerFunc
+}
+
+// buildRoutes is the single route table. Tests compare it against the OpenAPI
+// document so a route cannot ship undocumented.
+func buildRoutes(opts Options) []routeSpec {
+	return []routeSpec{
+		{"GET", "/api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, healthResponse{
+				OK:            true,
+				Version:       opts.Version,
+				UptimeSeconds: time.Since(opts.Started).Seconds(),
+			})
+		}},
+
+		{"GET", "/api/v1/meta", handleMeta(opts)},
+		{"GET", "/api/v1/index/status", handleIndexStatus(opts)},
+		{"POST", "/api/v1/index/rescan", handleIndexRescan(opts)},
+
+		{"GET", "/api/v1/auth/status", handleAuthStatus(opts)},
+		{"POST", "/api/v1/auth/setup", handleSetup(opts)},
+		{"POST", "/api/v1/auth/login", handleLogin(opts)},
+		{"POST", "/api/v1/auth/logout", handleLogout(opts)},
+		{"GET", "/api/v1/auth/me", handleMe(opts)},
+		{"POST", "/api/v1/auth/password", handlePassword(opts)},
+
+		{"GET", "/api/v1/tokens", handleListTokens(opts)},
+		{"POST", "/api/v1/tokens", handleCreateToken(opts)},
+		{"DELETE", "/api/v1/tokens/{id}", handleDeleteToken(opts)},
+
+		{"GET", "/api/v1/notes", handleListNotes(opts)},
+		{"POST", "/api/v1/notes", handleCreateNote(opts)},
+		{"GET", "/api/v1/notes/by-path", handleNoteByPath(opts)},
+		{"GET", "/api/v1/notes/{id}", handleGetNote(opts)},
+		{"PUT", "/api/v1/notes/{id}", handleUpdateNote(opts)},
+		{"PATCH", "/api/v1/notes/{id}", handlePatchNote(opts)},
+		{"DELETE", "/api/v1/notes/{id}", handleDeleteNote(opts)},
+		{"POST", "/api/v1/notes/{id}/move", handleMoveNote(opts)},
+		{"GET", "/api/v1/notes/{id}/links", handleNoteLinks(opts)},
+		{"GET", "/api/v1/notes/{id}/backlinks", handleNoteBacklinks(opts)},
+
+		{"GET", "/api/v1/tree", handleTree(opts)},
+		{"GET", "/api/v1/files/{path...}", handleFile(opts)},
+		{"GET", "/api/v1/search", handleSearch(opts)},
+		{"GET", "/api/v1/events", handleEvents(opts)},
+		{"GET", "/api/v1/openapi.json", handleOpenAPI()},
+	}
+}
+
+// RoutePatterns lists "METHOD pattern" for every registered API route.
+func RoutePatterns() []string {
+	specs := buildRoutes(Options{})
+	patterns := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		patterns = append(patterns, spec.Method+" "+spec.Pattern)
+	}
+	return patterns
+}
+
 // NewRouter returns the root HTTP handler.
 func NewRouter(opts Options) http.Handler {
 	if opts.Logger == nil {
@@ -63,29 +130,9 @@ func NewRouter(opts Options) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, healthResponse{
-			OK:            true,
-			Version:       opts.Version,
-			UptimeSeconds: time.Since(opts.Started).Seconds(),
-		})
-	})
-
-	mux.HandleFunc("GET /api/v1/index/status", handleIndexStatus(opts))
-	mux.HandleFunc("POST /api/v1/index/rescan", handleIndexRescan(opts))
-
-	mux.HandleFunc("GET /api/v1/auth/status", handleAuthStatus(opts))
-	mux.HandleFunc("POST /api/v1/auth/setup", handleSetup(opts))
-	mux.HandleFunc("POST /api/v1/auth/login", handleLogin(opts))
-	mux.HandleFunc("POST /api/v1/auth/logout", handleLogout(opts))
-	mux.HandleFunc("GET /api/v1/auth/me", handleMe(opts))
-	mux.HandleFunc("POST /api/v1/auth/password", handlePassword(opts))
-
-	mux.HandleFunc("GET /api/v1/tokens", handleListTokens(opts))
-	mux.HandleFunc("POST /api/v1/tokens", handleCreateToken(opts))
-	mux.HandleFunc("DELETE /api/v1/tokens/{id}", handleDeleteToken(opts))
-
+	for _, spec := range buildRoutes(opts) {
+		mux.HandleFunc(spec.Method+" "+spec.Pattern, spec.Handler)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, http.StatusNotFound, "not_found", "No route matches this path.")
 	})
@@ -139,6 +186,12 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 		s.status = http.StatusOK
 	}
 	return s.ResponseWriter.Write(b)
+}
+
+func (s *statusRecorder) Flush() {
+	if flusher, ok := s.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func requestLogger(logger *slog.Logger, next http.Handler) http.Handler {

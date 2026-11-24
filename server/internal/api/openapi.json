@@ -1,0 +1,456 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "lewnotes API",
+    "version": "0.1.0",
+    "description": "Single-tenant notes server. Files are the source of truth; this API is the contract shared by the web UI, CLI, and agents."
+  },
+  "servers": [{ "url": "/" }],
+  "security": [{ "sessionCookie": [] }, { "bearerToken": [] }],
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": { "type": "apiKey", "in": "cookie", "name": "lewnotes_session" },
+      "bearerToken": { "type": "http", "scheme": "bearer", "description": "Device token minted at POST /api/v1/tokens." }
+    },
+    "parameters": {
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Current note ETag. Missing yields 428, stale yields 412."
+      },
+      "NoteID": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "required": ["type", "title", "status"],
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "required": ["id", "path", "title", "etag", "body"],
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "title": { "type": "string" },
+          "etag": { "type": "string" },
+          "size": { "type": "integer" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "frontmatter": { "type": "object", "additionalProperties": true },
+          "content": { "type": "string" },
+          "body": { "type": "string" },
+          "links": { "type": "array", "items": { "$ref": "#/components/schemas/Link" } },
+          "backlinks": { "type": "array", "items": { "$ref": "#/components/schemas/Backlink" } }
+        }
+      },
+      "NoteSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "title": { "type": "string" },
+          "excerpt": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "size": { "type": "integer" },
+          "updated_at": { "type": "integer" }
+        }
+      },
+      "Link": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "title": { "type": "string" },
+          "target": { "type": "string" },
+          "alias": { "type": "string" },
+          "fragment": { "type": "string" },
+          "kind": { "type": "string", "enum": ["link", "embed"] },
+          "resolution": { "type": "string", "enum": ["exact", "suffix", "unresolved", "ambiguous"] },
+          "line": { "type": "integer" },
+          "candidates": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Backlink": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "title": { "type": "string" },
+          "alias": { "type": "string" },
+          "fragment": { "type": "string" },
+          "kind": { "type": "string" },
+          "line": { "type": "integer" }
+        }
+      },
+      "SearchHit": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "title": { "type": "string" },
+          "snippet": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "type": { "type": "string" }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "RFC 9457 problem",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } }
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness probe",
+        "security": [],
+        "responses": { "200": { "description": "Server is up" } }
+      }
+    },
+    "/api/v1/meta": {
+      "get": {
+        "operationId": "meta",
+        "summary": "Capabilities and limits",
+        "responses": { "200": { "description": "Instance metadata" }, "401": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/index/status": {
+      "get": {
+        "operationId": "indexStatus",
+        "summary": "Scan state and warning count",
+        "responses": { "200": { "description": "Index status" }, "401": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/index/rescan": {
+      "post": {
+        "operationId": "indexRescan",
+        "summary": "Start a background scan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "properties": { "full": { "type": "boolean" } } }
+            }
+          }
+        },
+        "responses": { "202": { "description": "Scan started" }, "409": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/auth/status": {
+      "get": {
+        "operationId": "authStatus",
+        "summary": "Whether first-run setup is required",
+        "security": [],
+        "responses": { "200": { "description": "Auth status" } }
+      }
+    },
+    "/api/v1/auth/setup": {
+      "post": {
+        "operationId": "authSetup",
+        "summary": "Create the single owner account",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["password"],
+                "properties": {
+                  "password": { "type": "string" },
+                  "instance_name": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Owner created and signed in" }, "409": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "authLogin",
+        "summary": "Sign in with the owner password",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "required": ["password"], "properties": { "password": { "type": "string" } } }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Session cookies set" }, "401": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "authLogout",
+        "summary": "Revoke the current session",
+        "responses": { "204": { "description": "Signed out" } }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "authMe",
+        "summary": "Current principal and CSRF token",
+        "responses": { "200": { "description": "Current session or token" }, "401": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/auth/password": {
+      "post": {
+        "operationId": "authPassword",
+        "summary": "Rotate the owner password",
+        "responses": { "200": { "description": "Password changed" }, "400": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "operationId": "listTokens",
+        "summary": "List active device tokens",
+        "responses": { "200": { "description": "Device tokens" } }
+      },
+      "post": {
+        "operationId": "createToken",
+        "summary": "Mint a device token (returned once)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Encoded token" } }
+      }
+    },
+    "/api/v1/tokens/{id}": {
+      "delete": {
+        "operationId": "revokeToken",
+        "summary": "Revoke a device token",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "Revoked" }, "404": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/notes": {
+      "get": {
+        "operationId": "listNotes",
+        "summary": "List notes with optional filters",
+        "parameters": [
+          { "name": "path_prefix", "in": "query", "schema": { "type": "string" } },
+          { "name": "tag", "in": "query", "schema": { "type": "string" } },
+          { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["updated", "created", "path", "title"] } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 0, "maximum": 200, "default": 50 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Page of note summaries" } }
+      },
+      "post": {
+        "operationId": "createNote",
+        "summary": "Create a note and inject its id",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string" },
+                  "content": { "type": "string" },
+                  "frontmatter": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created note with ETag", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Note" } } } },
+          "409": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/v1/notes/by-path": {
+      "get": {
+        "operationId": "getNoteByPath",
+        "summary": "Fetch a note by vault path",
+        "parameters": [
+          { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "markdown"] } }
+        ],
+        "responses": { "200": { "description": "Note" }, "404": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/notes/{id}": {
+      "get": {
+        "operationId": "getNote",
+        "summary": "Fetch a note by id",
+        "parameters": [{ "$ref": "#/components/parameters/NoteID" }],
+        "responses": { "200": { "description": "Note" }, "404": { "$ref": "#/components/responses/Problem" } }
+      },
+      "put": {
+        "operationId": "replaceNote",
+        "summary": "Replace note content",
+        "parameters": [{ "$ref": "#/components/parameters/NoteID" }, { "$ref": "#/components/parameters/IfMatch" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "required": ["content"], "properties": { "content": { "type": "string" } } }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated note" },
+          "412": { "$ref": "#/components/responses/Problem" },
+          "428": { "$ref": "#/components/responses/Problem" }
+        }
+      },
+      "patch": {
+        "operationId": "patchNote",
+        "summary": "Apply ops-based edits",
+        "parameters": [{ "$ref": "#/components/parameters/NoteID" }, { "$ref": "#/components/parameters/IfMatch" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["ops"],
+                "properties": {
+                  "ops": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["type"],
+                      "properties": {
+                        "type": { "type": "string", "enum": ["append", "prepend", "replace_range", "set_frontmatter"] },
+                        "text": { "type": "string" },
+                        "start": { "type": "integer" },
+                        "end": { "type": "integer" },
+                        "frontmatter": { "type": "object", "additionalProperties": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Updated note" }, "412": { "$ref": "#/components/responses/Problem" } }
+      },
+      "delete": {
+        "operationId": "deleteNote",
+        "summary": "Soft-delete a note into .lewnotes/trash",
+        "parameters": [{ "$ref": "#/components/parameters/NoteID" }, { "$ref": "#/components/parameters/IfMatch" }],
+        "responses": { "200": { "description": "Trash location" }, "412": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/notes/{id}/move": {
+      "post": {
+        "operationId": "moveNote",
+        "summary": "Move a note and rewrite inbound wikilinks",
+        "parameters": [{ "$ref": "#/components/parameters/NoteID" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string" },
+                  "rewrite_links": { "type": "boolean", "default": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Moved note and rewrite count" }, "409": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/notes/{id}/links": {
+      "get": {
+        "operationId": "noteLinks",
+        "summary": "Outgoing links with resolution state",
+        "parameters": [{ "$ref": "#/components/parameters/NoteID" }],
+        "responses": { "200": { "description": "Links" } }
+      }
+    },
+    "/api/v1/notes/{id}/backlinks": {
+      "get": {
+        "operationId": "noteBacklinks",
+        "summary": "Incoming links",
+        "parameters": [{ "$ref": "#/components/parameters/NoteID" }],
+        "responses": { "200": { "description": "Backlinks" } }
+      }
+    },
+    "/api/v1/tree": {
+      "get": {
+        "operationId": "tree",
+        "summary": "Directory listing for the sidebar",
+        "parameters": [
+          { "name": "path", "in": "query", "schema": { "type": "string" } },
+          { "name": "depth", "in": "query", "schema": { "type": "integer", "default": 3 } }
+        ],
+        "responses": { "200": { "description": "Tree nodes" } }
+      }
+    },
+    "/api/v1/files/{path}": {
+      "get": {
+        "operationId": "rawFile",
+        "summary": "Raw file bytes for embeds and attachments",
+        "parameters": [
+          { "name": "path", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Vault-relative path; may contain slashes." }
+        ],
+        "responses": { "200": { "description": "File bytes" }, "304": { "description": "Not modified" }, "404": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "operationId": "search",
+        "summary": "Search notes with the shared query grammar",
+        "parameters": [
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Free text plus tag:, path:, is:unresolved|ambiguous, has:embed, and -negation." },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Ranked hits with <mark> snippets", "content": { "application/json": { "schema": { "type": "object", "properties": { "hits": { "type": "array", "items": { "$ref": "#/components/schemas/SearchHit" } }, "total": { "type": "integer" }, "next_cursor": { "type": "string" } } } } } },
+          "400": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "events",
+        "summary": "Server-sent change events with Last-Event-ID replay",
+        "parameters": [{ "name": "Last-Event-ID", "in": "header", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "text/event-stream" } }
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "operationId": "openapi",
+        "summary": "This document",
+        "security": [],
+        "responses": { "200": { "description": "OpenAPI 3.1 document" } }
+      }
+    }
+  }
+}

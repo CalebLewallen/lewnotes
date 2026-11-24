@@ -17,6 +17,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/caleblewallen/lewnotes/server/internal/links"
 	"github.com/caleblewallen/lewnotes/server/internal/markdown"
 	"github.com/caleblewallen/lewnotes/server/internal/vault"
 )
@@ -151,6 +152,7 @@ func (s *Scanner) scan(ctx context.Context, full bool, stats *Stats) error {
 	}
 
 	seen := make(map[string]bool, len(files))
+	pendingLinks := map[string][]links.Ref{}
 	for i, file := range files {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -244,6 +246,7 @@ func (s *Scanner) scan(ctx context.Context, full bool, stats *Stats) error {
 		if err := s.index.UpsertNote(ctx, note); err != nil {
 			return err
 		}
+		pendingLinks[note.ID] = links.Parse(doc.Body)
 
 		if _, ok := byPath[file.rel]; ok {
 			stats.Updated++
@@ -266,6 +269,39 @@ func (s *Scanner) scan(ctx context.Context, full bool, stats *Stats) error {
 		}
 		s.logger.Info("removed note missing from vault", "path", rel)
 		stats.Removed++
+	}
+
+	// Resolve links only after every note is indexed, so a link to a note
+	// later in the walk still resolves. This also makes rebuilds reproduce
+	// the same link table as live edits.
+	if len(pendingLinks) > 0 {
+		all, err := s.index.AllNotes(ctx)
+		if err != nil {
+			return err
+		}
+		candidates := make([]links.Candidate, 0, len(all))
+		for _, note := range all {
+			candidates = append(candidates, links.Candidate{ID: note.ID, Path: note.Path})
+		}
+		for id, refs := range pendingLinks {
+			rows := make([]LinkRow, 0, len(refs))
+			for _, ref := range refs {
+				resolution := links.Resolve(ref.Target, candidates)
+				rows = append(rows, LinkRow{
+					DstID:      resolution.ID,
+					DstRaw:     ref.Target,
+					Alias:      ref.Alias,
+					Fragment:   ref.Fragment,
+					Kind:       string(ref.Kind),
+					Resolution: resolution.Status,
+					Line:       ref.Line,
+					Candidates: resolution.Candidates,
+				})
+			}
+			if err := s.index.ReplaceLinks(ctx, id, rows); err != nil {
+				s.warn(stats, "index links for %s: %v", id, err)
+			}
+		}
 	}
 
 	return nil
