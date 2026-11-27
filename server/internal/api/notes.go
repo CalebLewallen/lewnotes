@@ -36,9 +36,9 @@ func writeNoteError(w http.ResponseWriter, r *http.Request, opts Options, err er
 	var conflict *notes.ConflictError
 	switch {
 	case errors.Is(err, notes.ErrNotFound), errors.Is(err, fs.ErrNotExist):
-		writeProblem(w, r, http.StatusNotFound, "note_not_found", "No note matches that id or path.")
+		writeProblem(w, r, http.StatusNotFound, "note_not_found", "No note or folder matches that id or path.")
 	case errors.Is(err, notes.ErrExists):
-		writeProblem(w, r, http.StatusConflict, "note_exists", "A file already exists at that path.")
+		writeProblem(w, r, http.StatusConflict, "note_exists", "A file or folder already exists at that path.")
 	case errors.Is(err, notes.ErrPreconditionRequired):
 		writeProblem(w, r, http.StatusPreconditionRequired, "if_match_required",
 			"Send If-Match with the note's current ETag.")
@@ -100,7 +100,7 @@ func handleCreateNote(opts Options) http.HandlerFunc {
 		var req notes.CreateInput
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeProblem(w, r, http.StatusBadRequest, "invalid_body",
-				`Request body must be JSON like {"path":"inbox/note.md","content":"# Note"}.`)
+				`Request body must be JSON like {"path":"note.md","content":"# Note"}.`)
 			return
 		}
 		note, err := opts.Notes.Create(withOrigin(r).Context(), req)
@@ -110,6 +110,56 @@ func handleCreateNote(opts Options) http.HandlerFunc {
 		}
 		w.Header().Set("Location", "/api/v1/notes/"+note.ID)
 		writeNote(w, http.StatusCreated, note)
+	}
+}
+
+func handleCreateDir(opts Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !notesAvailable(w, r, opts) {
+			return
+		}
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := decodeJSON(w, r, &req); err != nil || strings.TrimSpace(req.Path) == "" {
+			writeProblem(w, r, http.StatusBadRequest, "invalid_body",
+				`Request body must be JSON like {"path":"projects"}.`)
+			return
+		}
+		created, err := opts.Notes.CreateDir(withOrigin(r).Context(), req.Path)
+		if err != nil {
+			writeNoteError(w, r, opts, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"path": created})
+	}
+}
+
+func handleMoveDir(opts Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !notesAvailable(w, r, opts) {
+			return
+		}
+		var req struct {
+			Path         string `json:"path"`
+			NewPath      string `json:"new_path"`
+			RewriteLinks *bool  `json:"rewrite_links"`
+		}
+		if err := decodeJSON(w, r, &req); err != nil || strings.TrimSpace(req.Path) == "" || strings.TrimSpace(req.NewPath) == "" {
+			writeProblem(w, r, http.StatusBadRequest, "invalid_body",
+				`Request body must be JSON like {"path":"projects","new_path":"archive/projects"}.`)
+			return
+		}
+		rewrite := true
+		if req.RewriteLinks != nil {
+			rewrite = *req.RewriteLinks
+		}
+		result, err := opts.Notes.MoveDir(withOrigin(r).Context(), req.Path, req.NewPath, rewrite)
+		if err != nil {
+			writeNoteError(w, r, opts, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
@@ -415,7 +465,7 @@ func handleMeta(opts Options) http.HandlerFunc {
 			"limits": map[string]any{
 				"max_note_bytes": notes.DefaultMaxBytes,
 			},
-			"features": []string{"notes", "wikilinks", "search", "tree", "sse"},
+			"features": []string{"notes", "wikilinks", "search", "tree", "directories", "sse"},
 		})
 	}
 }

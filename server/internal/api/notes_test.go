@@ -191,6 +191,77 @@ func TestNotesAPIFlow(t *testing.T) {
 	}
 }
 
+func TestDirectoriesAPIFlow(t *testing.T) {
+	env := newTestEnv(t, 10)
+	client := env.anon()
+	client.setup(t)
+
+	created := client.do(http.MethodPost, "/api/v1/dirs", `{"path":"projects"}`)
+	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), `"path":"projects"`) {
+		t.Fatalf("create dir = %d, %s", created.Code, created.Body.String())
+	}
+	if duplicate := client.do(http.MethodPost, "/api/v1/dirs", `{"path":"projects"}`); duplicate.Code != http.StatusConflict {
+		t.Errorf("duplicate dir = %d, want 409", duplicate.Code)
+	}
+	if invalid := client.do(http.MethodPost, "/api/v1/dirs", `{"path":"../escape"}`); invalid.Code != http.StatusBadRequest {
+		t.Errorf("invalid dir = %d, want 400", invalid.Code)
+	}
+
+	a := createNoteAPI(t, client, "projects/A.md", "# A\n")
+	client.do(http.MethodPost, "/api/v1/notes",
+		`{"path":"outside.md","content":`+mustJSON(t, "# Outside\n\nSee [[projects/A]].\n")+`}`)
+
+	moved := client.do(http.MethodPost, "/api/v1/dirs/move",
+		`{"path":"projects","new_path":"archive/projects","rewrite_links":true}`)
+	if moved.Code != http.StatusOK {
+		t.Fatalf("move dir = %d, %s", moved.Code, moved.Body.String())
+	}
+	var result notes.DirMoveResult
+	if err := json.Unmarshal(moved.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Moved || result.NotesMoved != 1 || result.LinksRewritten != 1 || result.Path != "archive/projects" {
+		t.Errorf("move dir result = %+v", result)
+	}
+
+	afterMove := client.do(http.MethodGet, "/api/v1/notes/"+a.ID, "")
+	if afterMove.Code != http.StatusOK || !strings.Contains(afterMove.Body.String(), `"path":"archive/projects/A.md"`) {
+		t.Errorf("moved note = %d, %s", afterMove.Code, afterMove.Body.String())
+	}
+	outside := client.do(http.MethodGet, "/api/v1/notes/by-path?path=outside.md", "")
+	if outside.Code != http.StatusOK || !strings.Contains(outside.Body.String(), "[[archive/projects/A]]") {
+		t.Errorf("outside rewrite = %d, %s", outside.Code, outside.Body.String())
+	}
+
+	tree := client.do(http.MethodGet, "/api/v1/tree?depth=5", "")
+	if tree.Code != http.StatusOK || !strings.Contains(tree.Body.String(), `"archive"`) || strings.Contains(tree.Body.String(), `"path":"projects"`) {
+		t.Errorf("tree after dir move = %d, %s", tree.Code, tree.Body.String())
+	}
+
+	intoItself := client.do(http.MethodPost, "/api/v1/dirs/move",
+		`{"path":"archive/projects","new_path":"archive/projects/nested"}`)
+	if intoItself.Code != http.StatusBadRequest {
+		t.Errorf("move dir into itself = %d, want 400", intoItself.Code)
+	}
+}
+
+func TestUnknownAPIRouteAfterAuthIsProblemJSON(t *testing.T) {
+	env := newTestEnv(t, 10)
+	client := env.anon()
+	client.setup(t)
+
+	rec := client.do(http.MethodGet, "/api/v1/no-such-route", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown API = %d, want 404", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/problem+json") {
+		t.Fatalf("content type = %q, want problem+json", ct)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":404`) {
+		t.Fatalf("body = %s, want a 404 problem", rec.Body.String())
+	}
+}
+
 func TestEventsReplayOverHTTP(t *testing.T) {
 	env := newTestEnv(t, 10)
 	client := env.anon()

@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "data": {
+    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "path": "Kitchen.md",
+    "title": "Kitchen",
+    "etag": "\"etag-kitchen\"",
+    "size": 24,
+    "updated_at": "2026-11-20T12:00:00Z",
+    "tags": [
+      "home"
+    ],
+    "frontmatter": {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "content": "# Kitchen\n\nSee [[Garden]]\n",
+    "body": "See [[Garden]]\n",
+    "links": [
+      {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "path": "garden/Garden.md",
+        "title": "Garden",
+        "target": "Garden",
+        "kind": "link",
+        "resolution": "exact",
+        "line": 3
+      }
+    ],
+    "backlinks": []
+  },
+  "warnings": []
+}

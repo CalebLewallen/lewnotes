@@ -36,23 +36,18 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-func TestUnknownRouteIsProblemJSON(t *testing.T) {
+func TestUnknownClientRouteServesSPA(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newTestRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/no-such-page", nil))
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 SPA shell", rec.Code)
 	}
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/problem+json") {
-		t.Fatalf("content type = %q, want application/problem+json", ct)
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("content type = %q, want text/html", ct)
 	}
-
-	var body problem
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Status != http.StatusNotFound || body.Detail == "" {
-		t.Fatalf("body = %+v, want status=404 with detail", body)
+	if !strings.Contains(rec.Body.String(), "<!doctype html>") {
+		t.Fatal("response did not look like the SPA shell")
 	}
 }
 

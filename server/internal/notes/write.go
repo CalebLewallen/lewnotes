@@ -166,6 +166,180 @@ type MoveResult struct {
 	Warnings       []string `json:"warnings,omitempty"`
 }
 
+// DirMoveResult reports a directory rename and the notes carried with it.
+type DirMoveResult struct {
+	Moved          bool     `json:"moved"`
+	Path           string   `json:"path"`
+	NotesMoved     int      `json:"notes_moved"`
+	LinksRewritten int      `json:"links_rewritten"`
+	Warnings       []string `json:"warnings,omitempty"`
+}
+
+// CreateDir creates a directory inside the vault.
+func (s *Service) CreateDir(ctx context.Context, rel string) (string, error) {
+	clean, err := CleanDirPath(rel)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.vault.Stat(clean); err == nil {
+		return "", ErrExists
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	if err := s.vault.EnsureDir(clean); err != nil {
+		return "", err
+	}
+	s.publishTreeChange(ctx, clean, "")
+	return clean, nil
+}
+
+// MoveDir renames a directory, reindexes every note it contains, and rewrites
+// full-path wikilinks that pointed into the old directory. Basename links do
+// not need rewriting because a directory rename does not change basenames.
+func (s *Service) MoveDir(ctx context.Context, rel, newRel string, rewrite bool) (DirMoveResult, error) {
+	oldClean, err := CleanDirPath(rel)
+	if err != nil {
+		return DirMoveResult{}, err
+	}
+	newClean, err := CleanDirPath(newRel)
+	if err != nil {
+		return DirMoveResult{}, err
+	}
+	if oldClean == newClean {
+		return DirMoveResult{Path: oldClean}, nil
+	}
+	if strings.HasPrefix(newClean+"/", oldClean+"/") {
+		return DirMoveResult{}, fmt.Errorf("%w: a directory cannot move inside itself", ErrInvalidPath)
+	}
+	if !s.inAttachments(oldClean) && s.inAttachments(newClean) {
+		return DirMoveResult{}, fmt.Errorf("%w: notes cannot be moved into %s; it holds uploaded files", ErrInvalidPath, s.attachments)
+	}
+
+	info, err := s.vault.Stat(oldClean)
+	if errors.Is(err, fs.ErrNotExist) {
+		return DirMoveResult{}, ErrNotFound
+	}
+	if err != nil {
+		return DirMoveResult{}, err
+	}
+	if !info.IsDir() {
+		return DirMoveResult{}, fmt.Errorf("%w: %s is not a directory", ErrInvalidPath, oldClean)
+	}
+	if _, err := s.vault.Stat(newClean); err == nil {
+		return DirMoveResult{}, ErrExists
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return DirMoveResult{}, err
+	}
+
+	all, err := s.index.AllNotes(ctx)
+	if err != nil {
+		return DirMoveResult{}, err
+	}
+	type movedNote struct {
+		id      string
+		oldPath string
+		newPath string
+	}
+	moved := make([]movedNote, 0)
+	for _, note := range all {
+		if !strings.HasPrefix(note.Path, oldClean+"/") {
+			continue
+		}
+		suffix := strings.TrimPrefix(note.Path, oldClean+"/")
+		moved = append(moved, movedNote{
+			id:      note.ID,
+			oldPath: note.Path,
+			newPath: newClean + "/" + suffix,
+		})
+	}
+
+	if err := s.vault.Rename(oldClean, newClean); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return DirMoveResult{}, ErrExists
+		}
+		return DirMoveResult{}, err
+	}
+
+	result := DirMoveResult{Moved: true, Path: newClean, NotesMoved: len(moved), Warnings: []string{}}
+	for _, note := range moved {
+		if err := s.index.MoveNotePath(ctx, note.id, note.newPath); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("move index %s: %v", note.oldPath, err))
+			continue
+		}
+		data, fresh, err := s.readFile(note.newPath)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("read %s: %v", note.newPath, err))
+			continue
+		}
+		if _, err := s.reindex(ctx, note.newPath, data, fresh); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("reindex %s: %v", note.newPath, err))
+		}
+	}
+
+	if rewrite && len(moved) > 0 {
+		refs, err := s.index.AllNotes(ctx)
+		if err != nil {
+			result.Warnings = append(result.Warnings, "list notes for link rewrite: "+err.Error())
+		} else {
+			for _, ref := range refs {
+				data, fresh, err := s.readFile(ref.Path)
+				if err != nil {
+					result.Warnings = append(result.Warnings, fmt.Sprintf("read %s: %v", ref.Path, err))
+					continue
+				}
+				updated := data
+				changed := false
+				for _, note := range moved {
+					var rewritten []byte
+					var noteChanged bool
+					// The basenames are unchanged, so full-path forms must be
+					// eligible even when a basename is ambiguous.
+					rewritten, noteChanged = RewriteLinkTargets(updated, note.oldPath, note.newPath, true, true)
+					if noteChanged {
+						updated = rewritten
+						changed = true
+					}
+				}
+				if !changed {
+					continue
+				}
+				if err := s.vault.WriteAtomic(ref.Path, updated, fresh.Mode().Perm()); err != nil {
+					result.Warnings = append(result.Warnings, fmt.Sprintf("rewrite %s: %v", ref.Path, err))
+					continue
+				}
+				fresh, err = s.vault.Stat(ref.Path)
+				if err != nil {
+					result.Warnings = append(result.Warnings, fmt.Sprintf("stat %s: %v", ref.Path, err))
+					continue
+				}
+				if _, err := s.reindex(ctx, ref.Path, updated, fresh); err != nil {
+					result.Warnings = append(result.Warnings, fmt.Sprintf("reindex %s: %v", ref.Path, err))
+					continue
+				}
+				result.LinksRewritten++
+			}
+		}
+	}
+
+	s.reResolveLinks(ctx)
+	s.publishTreeChange(ctx, oldClean, newClean)
+	return result, nil
+}
+
+func (s *Service) publishTreeChange(ctx context.Context, pathValue, newPath string) {
+	if s.events == nil {
+		return
+	}
+	data := map[string]any{
+		"path":   pathValue,
+		"origin": OriginFromContext(ctx),
+	}
+	if newPath != "" {
+		data["new_path"] = newPath
+	}
+	s.events.Publish("tree.changed", data)
+}
+
 // Move renames a note and rewrites inbound wikilinks in the same operation.
 func (s *Service) Move(ctx context.Context, id, newPath string, rewrite bool) (MoveResult, error) {
 	row, err := s.noteRow(ctx, id)
@@ -175,6 +349,9 @@ func (s *Service) Move(ctx context.Context, id, newPath string, rewrite bool) (M
 	clean, err := CleanPath(newPath)
 	if err != nil {
 		return MoveResult{}, err
+	}
+	if s.inAttachments(clean) {
+		return MoveResult{}, fmt.Errorf("%w: notes cannot be moved into %s; it holds uploaded files", ErrInvalidPath, s.attachments)
 	}
 	oldPath := row.Path
 	if clean == oldPath {
@@ -399,12 +576,13 @@ func (s *Service) Tree(ctx context.Context, rel string, depth int) ([]TreeNode, 
 		nodes = append(nodes, node)
 	}
 
+	// Notes and other files sort before folders so a folder never sits above
+	// the notes that belong to its parent.
 	sort.SliceStable(nodes, func(i, j int) bool {
-		if nodes[i].Type == "dir" && nodes[j].Type != "dir" {
-			return true
-		}
-		if nodes[i].Type != "dir" && nodes[j].Type == "dir" {
-			return false
+		iDir := nodes[i].Type == "dir"
+		jDir := nodes[j].Type == "dir"
+		if iDir != jDir {
+			return !iDir
 		}
 		return strings.ToLower(nodes[i].Name) < strings.ToLower(nodes[j].Name)
 	})

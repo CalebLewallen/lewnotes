@@ -8,12 +8,16 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/caleblewallen/lewnotes/server/internal/auth"
+	"github.com/caleblewallen/lewnotes/server/internal/clilogin"
 	"github.com/caleblewallen/lewnotes/server/internal/events"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
 	"github.com/caleblewallen/lewnotes/server/internal/notes"
+	"github.com/caleblewallen/lewnotes/server/internal/settings"
+	"github.com/caleblewallen/lewnotes/server/internal/webui"
 )
 
 // Options configures the root handler.
@@ -24,16 +28,21 @@ type Options struct {
 	Index   *index.Index
 	Scanner *index.Scanner
 
-	Auth   *auth.Service
-	Notes  *notes.Service
-	Events *events.Hub
+	Auth     *auth.Service
+	Notes    *notes.Service
+	Events   *events.Hub
+	Settings *settings.Store
+	CLILogin *clilogin.Service
 
 	TrustProxy bool
 	PublicURL  string
+	Listen     string
 
-	LoginLimiter   *auth.Limiter
-	VerifyLimiter  *auth.Limiter
-	GeneralLimiter *auth.Limiter
+	LoginLimiter    *auth.Limiter
+	VerifyLimiter   *auth.Limiter
+	GeneralLimiter  *auth.Limiter
+	CLILoginLimiter *auth.Limiter
+	CLIPollLimiter  *auth.Limiter
 }
 
 type healthResponse struct {
@@ -82,6 +91,18 @@ func buildRoutes(opts Options) []routeSpec {
 		{"POST", "/api/v1/tokens", handleCreateToken(opts)},
 		{"DELETE", "/api/v1/tokens/{id}", handleDeleteToken(opts)},
 
+		{"GET", "/api/v1/settings", handleGetSettings(opts)},
+		{"PATCH", "/api/v1/settings", handleUpdateSettings(opts)},
+		{"POST", "/api/v1/settings/validate", handleValidateServer(opts)},
+
+		{"POST", "/api/v1/cli/login", handleCreateCLILogin(opts)},
+		{"GET", "/api/v1/cli/login/{id}", handlePollCLILogin(opts)},
+		{"DELETE", "/api/v1/cli/login/{id}", handleCancelCLILogin(opts)},
+		{"GET", "/api/v1/cli/login/{id}/preview", handlePreviewCLILogin(opts)},
+		{"POST", "/api/v1/cli/login/{id}/approve", handleApproveCLILogin(opts)},
+		{"POST", "/api/v1/cli/login/{id}/deny", handleDenyCLILogin(opts)},
+		{"POST", "/api/v1/cli/login/resolve", handleResolveCLILogin(opts)},
+
 		{"GET", "/api/v1/notes", handleListNotes(opts)},
 		{"POST", "/api/v1/notes", handleCreateNote(opts)},
 		{"GET", "/api/v1/notes/by-path", handleNoteByPath(opts)},
@@ -93,6 +114,8 @@ func buildRoutes(opts Options) []routeSpec {
 		{"GET", "/api/v1/notes/{id}/links", handleNoteLinks(opts)},
 		{"GET", "/api/v1/notes/{id}/backlinks", handleNoteBacklinks(opts)},
 
+		{"POST", "/api/v1/dirs", handleCreateDir(opts)},
+		{"POST", "/api/v1/dirs/move", handleMoveDir(opts)},
 		{"GET", "/api/v1/tree", handleTree(opts)},
 		{"GET", "/api/v1/files/{path...}", handleFile(opts)},
 		{"GET", "/api/v1/search", handleSearch(opts)},
@@ -128,13 +151,26 @@ func NewRouter(opts Options) http.Handler {
 	if opts.GeneralLimiter == nil {
 		opts.GeneralLimiter = auth.NewLimiter(auth.LimiterOptions{Limit: 600, Window: time.Minute})
 	}
+	if opts.CLILoginLimiter == nil {
+		opts.CLILoginLimiter = auth.NewLimiter(auth.LimiterOptions{Limit: 10, Window: time.Minute})
+	}
+	if opts.CLIPollLimiter == nil {
+		opts.CLIPollLimiter = auth.NewLimiter(auth.LimiterOptions{Limit: 60, Window: time.Minute})
+	}
 
 	mux := http.NewServeMux()
 	for _, spec := range buildRoutes(opts) {
 		mux.HandleFunc(spec.Method+" "+spec.Pattern, spec.Handler)
 	}
+	spa := webui.Handler()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, r, http.StatusNotFound, "not_found", "No route matches this path.")
+		// Unknown API paths stay machine-readable; every other unknown path
+		// belongs to a client-side SvelteKit route.
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writeProblem(w, r, http.StatusNotFound, "not_found", "No route matches this path.")
+			return
+		}
+		spa.ServeHTTP(w, r)
 	})
 
 	return recoverPanics(opts.Logger, requestLogger(opts.Logger, securityHeaders(authMiddleware(opts, mux))))

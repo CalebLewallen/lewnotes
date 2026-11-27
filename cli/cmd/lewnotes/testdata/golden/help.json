@@ -1,0 +1,607 @@
+{
+  "ok": true,
+  "data": {
+    "schema": "lewnotes.cli.v1",
+    "version": "test",
+    "global_flags": [
+      {
+        "name": "--server",
+        "type": "string",
+        "description": "Server origin, overriding LEWNOTES_SERVER and the config file."
+      },
+      {
+        "name": "--token",
+        "type": "string",
+        "description": "Device token, overriding LEWNOTES_TOKEN and the config file. Prefer env/stored credentials."
+      },
+      {
+        "name": "--config",
+        "type": "string",
+        "description": "Config file path. Defaults to the user config directory."
+      },
+      {
+        "name": "--json",
+        "type": "bool|lines",
+        "default": "false",
+        "description": "Emit the stable JSON envelope; --json=lines emits one JSON object per list item."
+      },
+      {
+        "name": "--timeout",
+        "type": "duration",
+        "default": "30s",
+        "description": "HTTP timeout."
+      },
+      {
+        "name": "--quiet",
+        "type": "bool",
+        "default": "false",
+        "description": "Suppress human-readable success output."
+      },
+      {
+        "name": "--verbose",
+        "type": "bool",
+        "default": "false",
+        "description": "Include extra detail in human-readable errors."
+      },
+      {
+        "name": "--no-color",
+        "type": "bool",
+        "default": "false",
+        "description": "Disable color. Output is uncolored today; accepted for scripts."
+      }
+    ],
+    "exit_codes": {
+      "ambiguous_ref": 3,
+      "auth": 4,
+      "conflict": 5,
+      "error": 1,
+      "ok": 0,
+      "unreachable": 6,
+      "usage": 2
+    },
+    "commands": [
+      {
+        "name": "version",
+        "summary": "Print the CLI version.",
+        "usage": "lewnotes version [--json]",
+        "output": [
+          "version",
+          "os",
+          "arch"
+        ],
+        "mutating": false
+      },
+      {
+        "name": "login",
+        "summary": "Approve this device in the browser and store the issued token.",
+        "usage": "lewnotes login [server] [--no-browser] [--device-name NAME] [--token-stdin] [--json]",
+        "args": [
+          {
+            "name": "server",
+            "description": "Server origin. Needed only on the first login from this machine."
+          }
+        ],
+        "flags": [
+          {
+            "name": "--no-browser",
+            "type": "bool",
+            "default": "false",
+            "description": "Print a short code and poll instead of opening a local browser."
+          },
+          {
+            "name": "--device-name",
+            "type": "string",
+            "description": "Name shown on the approval page. Defaults to the hostname."
+          },
+          {
+            "name": "--token-stdin",
+            "type": "bool",
+            "default": "false",
+            "description": "Read an existing device token from stdin (CI and agent path)."
+          },
+          {
+            "name": "--open",
+            "type": "bool",
+            "default": "false",
+            "description": "Open the approval page even in a non-interactive shell."
+          },
+          {
+            "name": "--no-open",
+            "type": "bool",
+            "default": "false",
+            "description": "Alias for --no-browser."
+          }
+        ],
+        "output": [
+          "server",
+          "username",
+          "instance_name",
+          "device_name",
+          "token_name",
+          "auth"
+        ],
+        "examples": [
+          "lewnotes login https://notes.example.com",
+          "lewnotes login --no-browser",
+          "printf '%s' \"$LEWNOTES_TOKEN\" | lewnotes login --token-stdin --json"
+        ],
+        "mutating": false
+      },
+      {
+        "name": "logout",
+        "summary": "Forget the local device token, optionally revoking it server-side.",
+        "usage": "lewnotes logout [--revoke] [--json]",
+        "flags": [
+          {
+            "name": "--revoke",
+            "type": "bool",
+            "default": "false",
+            "description": "Also revoke the token through the API."
+          }
+        ],
+        "output": [
+          "logged_out",
+          "revoked"
+        ],
+        "mutating": true
+      },
+      {
+        "name": "whoami",
+        "summary": "Show the authenticated account and token.",
+        "usage": "lewnotes whoami [--json]",
+        "output": [
+          "username",
+          "auth",
+          "instance_name",
+          "token"
+        ],
+        "mutating": false
+      },
+      {
+        "name": "config",
+        "summary": "Read or change local CLI settings.",
+        "mutating": false,
+        "children": [
+          {
+            "name": "get",
+            "summary": "Show local configuration (the token is never printed).",
+            "usage": "lewnotes config get [server|device_name] [--json]",
+            "args": [
+              {
+                "name": "key",
+                "description": "Setting to show; omit for all settings."
+              }
+            ],
+            "output": [
+              "server",
+              "device_name",
+              "token_set",
+              "config_path"
+            ],
+            "mutating": false
+          },
+          {
+            "name": "set",
+            "summary": "Change a local setting.",
+            "usage": "lewnotes config set \u003cserver|device_name\u003e \u003cvalue\u003e [--json]",
+            "args": [
+              {
+                "name": "key",
+                "description": "Setting name.",
+                "required": true
+              },
+              {
+                "name": "value",
+                "description": "New value.",
+                "required": true
+              }
+            ],
+            "output": [
+              "key",
+              "value",
+              "config_path"
+            ],
+            "examples": [
+              "lewnotes config set server https://notes.example.com"
+            ],
+            "mutating": true
+          }
+        ]
+      },
+      {
+        "name": "note",
+        "summary": "List, read, create, edit, move, and delete notes.",
+        "mutating": false,
+        "children": [
+          {
+            "name": "list",
+            "summary": "List note summaries.",
+            "usage": "lewnotes note list [--limit N] [--sort updated|created|path|title] [--json[=lines]]",
+            "flags": [
+              {
+                "name": "--limit",
+                "type": "int",
+                "default": "50",
+                "description": "Maximum notes to return."
+              },
+              {
+                "name": "--cursor",
+                "type": "string",
+                "description": "Pagination cursor from a previous page."
+              },
+              {
+                "name": "--path-prefix",
+                "type": "string",
+                "description": "Only notes whose path starts with this prefix."
+              },
+              {
+                "name": "--tag",
+                "type": "string",
+                "description": "Only notes carrying this tag."
+              },
+              {
+                "name": "--sort",
+                "type": "string",
+                "default": "updated",
+                "description": "updated, created, path, or title."
+              }
+            ],
+            "output": [
+              "notes",
+              "total",
+              "next_cursor"
+            ],
+            "mutating": false
+          },
+          {
+            "name": "show",
+            "summary": "Print a note by id, path, path suffix, or unique title.",
+            "usage": "lewnotes note show \u003cref\u003e [--json]",
+            "args": [
+              {
+                "name": "ref",
+                "description": "Note reference.",
+                "required": true
+              }
+            ],
+            "output": [
+              "note"
+            ],
+            "examples": [
+              "lewnotes note show Kitchen",
+              "lewnotes note show notes/Kitchen.md --json"
+            ],
+            "mutating": false
+          },
+          {
+            "name": "new",
+            "summary": "Create a note.",
+            "usage": "lewnotes note new \u003ctitle\u003e [--folder DIR] [--body TEXT] [--stdin] [--json]",
+            "args": [
+              {
+                "name": "title",
+                "description": "Note title; used for the filename unless --path is set.",
+                "required": true
+              }
+            ],
+            "flags": [
+              {
+                "name": "--folder",
+                "type": "string",
+                "default": "inbox",
+                "description": "Folder inside the inbox. Relative paths are under inbox/."
+              },
+              {
+                "name": "--path",
+                "type": "string",
+                "description": "Exact note path; must be inside inbox/."
+              },
+              {
+                "name": "--body",
+                "type": "string",
+                "description": "Note body. Defaults to a level-one heading."
+              },
+              {
+                "name": "--stdin",
+                "type": "bool",
+                "default": "false",
+                "description": "Read the note body from stdin."
+              }
+            ],
+            "output": [
+              "id",
+              "path",
+              "title",
+              "etag"
+            ],
+            "examples": [
+              "lewnotes note new Hello --body \"first note\" --json",
+              "lewnotes note new Hello --folder projects --json"
+            ],
+            "mutating": true
+          },
+          {
+            "name": "append",
+            "summary": "Append text to a note using a conflict-checked patch.",
+            "usage": "lewnotes note append \u003cref\u003e [text] [--stdin] [--json]",
+            "args": [
+              {
+                "name": "ref",
+                "description": "Note reference.",
+                "required": true
+              },
+              {
+                "name": "text",
+                "description": "Text to append; use --stdin for multiline input."
+              }
+            ],
+            "flags": [
+              {
+                "name": "--stdin",
+                "type": "bool",
+                "default": "false",
+                "description": "Read the appended text from stdin."
+              }
+            ],
+            "output": [
+              "note"
+            ],
+            "mutating": true
+          },
+          {
+            "name": "edit",
+            "summary": "Open a note in $VISUAL or $EDITOR and save it with If-Match.",
+            "usage": "lewnotes note edit \u003cref\u003e [--json]",
+            "args": [
+              {
+                "name": "ref",
+                "description": "Note reference.",
+                "required": true
+              }
+            ],
+            "output": [
+              "note"
+            ],
+            "mutating": true
+          },
+          {
+            "name": "rm",
+            "summary": "Soft-delete a note into .lewnotes/trash.",
+            "usage": "lewnotes note rm \u003cref\u003e --yes [--json]",
+            "args": [
+              {
+                "name": "ref",
+                "description": "Note reference.",
+                "required": true
+              }
+            ],
+            "flags": [
+              {
+                "name": "--yes",
+                "type": "bool",
+                "default": "false",
+                "description": "Confirm deletion when stdin is not a terminal."
+              }
+            ],
+            "output": [
+              "deleted",
+              "trash_path"
+            ],
+            "examples": [
+              "lewnotes note rm 'Old idea' --yes --json"
+            ],
+            "mutating": true
+          },
+          {
+            "name": "mv",
+            "summary": "Move or rename a note, rewriting inbound links by default.",
+            "usage": "lewnotes note mv \u003cref\u003e \u003cnew-path\u003e [--no-rewrite] [--json]",
+            "args": [
+              {
+                "name": "ref",
+                "description": "Note reference.",
+                "required": true
+              },
+              {
+                "name": "new-path",
+                "description": "Destination vault-relative path.",
+                "required": true
+              }
+            ],
+            "flags": [
+              {
+                "name": "--no-rewrite",
+                "type": "bool",
+                "default": "false",
+                "description": "Do not rewrite inbound wikilinks."
+              }
+            ],
+            "output": [
+              "moved",
+              "note",
+              "links_rewritten",
+              "warnings"
+            ],
+            "mutating": true
+          },
+          {
+            "name": "links",
+            "summary": "List outgoing links and their resolution state.",
+            "usage": "lewnotes note links \u003cref\u003e [--json[=lines]]",
+            "args": [
+              {
+                "name": "ref",
+                "description": "Note reference.",
+                "required": true
+              }
+            ],
+            "output": [
+              "links"
+            ],
+            "mutating": false
+          },
+          {
+            "name": "backlinks",
+            "summary": "List notes that link to this note.",
+            "usage": "lewnotes note backlinks \u003cref\u003e [--json[=lines]]",
+            "args": [
+              {
+                "name": "ref",
+                "description": "Note reference.",
+                "required": true
+              }
+            ],
+            "output": [
+              "backlinks"
+            ],
+            "mutating": false
+          }
+        ]
+      },
+      {
+        "name": "search",
+        "summary": "Search with the shared query grammar.",
+        "usage": "lewnotes search \u003cquery\u003e [--limit N] [--json[=lines]]",
+        "args": [
+          {
+            "name": "query",
+            "description": "Free text plus tag:, path:, is:, has:, and -negation.",
+            "required": true
+          }
+        ],
+        "flags": [
+          {
+            "name": "--limit",
+            "type": "int",
+            "default": "50",
+            "description": "Maximum hits to return."
+          },
+          {
+            "name": "--cursor",
+            "type": "string",
+            "description": "Pagination cursor from a previous page."
+          }
+        ],
+        "output": [
+          "hits",
+          "total",
+          "next_cursor"
+        ],
+        "examples": [
+          "lewnotes search 'tag:project is:unresolved' --json"
+        ],
+        "mutating": false
+      },
+      {
+        "name": "index",
+        "summary": "Inspect or rebuild the server's SQLite index.",
+        "mutating": false,
+        "children": [
+          {
+            "name": "status",
+            "summary": "Show scan state and counts.",
+            "usage": "lewnotes index status [--json]",
+            "output": [
+              "state",
+              "mode",
+              "files_total",
+              "files_done",
+              "notes",
+              "warnings"
+            ],
+            "mutating": false
+          },
+          {
+            "name": "rescan",
+            "summary": "Start a background index scan.",
+            "usage": "lewnotes index rescan [--full] [--json]",
+            "flags": [
+              {
+                "name": "--full",
+                "type": "bool",
+                "default": "false",
+                "description": "Rehash and reindex every file."
+              }
+            ],
+            "output": [
+              "state",
+              "full"
+            ],
+            "mutating": true
+          }
+        ]
+      },
+      {
+        "name": "skills",
+        "summary": "Print or install the lewnotes agent skill.",
+        "mutating": false,
+        "children": [
+          {
+            "name": "print",
+            "summary": "Write the lewnotes-cli skill to stdout.",
+            "usage": "lewnotes skills print [--json]",
+            "output": [
+              "name",
+              "content"
+            ],
+            "mutating": false
+          },
+          {
+            "name": "install",
+            "summary": "Install the skill under \u003cdir\u003e/lewnotes-cli/SKILL.md.",
+            "usage": "lewnotes skills install [--dir .agents/skills] [--json]",
+            "flags": [
+              {
+                "name": "--dir",
+                "type": "string",
+                "default": ".agents/skills",
+                "description": "Skills directory."
+              }
+            ],
+            "output": [
+              "path"
+            ],
+            "mutating": true
+          }
+        ]
+      },
+      {
+        "name": "completion",
+        "summary": "Print a shell completion script.",
+        "usage": "lewnotes completion \u003cbash|zsh|fish\u003e",
+        "args": [
+          {
+            "name": "shell",
+            "description": "bash, zsh, or fish.",
+            "required": true
+          }
+        ],
+        "output": [
+          "shell",
+          "script"
+        ],
+        "mutating": false
+      },
+      {
+        "name": "help",
+        "summary": "Show human help or the machine-readable command catalogue.",
+        "usage": "lewnotes help [command ...] [--json]",
+        "args": [
+          {
+            "name": "command",
+            "description": "Optional command path."
+          }
+        ],
+        "output": [
+          "schema",
+          "version",
+          "commands",
+          "global_flags",
+          "exit_codes"
+        ],
+        "mutating": false
+      }
+    ]
+  },
+  "warnings": []
+}

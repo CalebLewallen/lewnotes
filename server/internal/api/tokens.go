@@ -64,9 +64,11 @@ func handleCreateToken(opts Options) http.HandlerFunc {
 			return
 		}
 
-		origin := opts.PublicURL
-		if origin == "" {
-			origin = originFromRequest(r, opts.TrustProxy)
+		origin, _, err := effectivePublicURL(r, opts)
+		if err != nil {
+			opts.Logger.Error("resolve public URL", "error", err)
+			writeProblem(w, r, http.StatusInternalServerError, "token_failed", "Could not determine this server's public URL.")
+			return
 		}
 
 		issued, err := opts.Auth.CreateToken(r.Context(), principal.UserID, req.Name, origin, r.UserAgent())

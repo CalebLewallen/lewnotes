@@ -71,8 +71,25 @@ func isPublicRoute(r *http.Request) bool {
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/login":
 		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/login":
+		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodDelete) && isShortLivedLoginPath(r.URL.Path):
+		// The CLI polls and cancels with an unguessable id plus a state header;
+		// there is no session to use on a machine that has never signed in.
+		return true
 	}
 	return false
+}
+
+// isShortLivedLoginPath matches /api/v1/cli/login/{id} only; the /preview,
+// /approve, and /deny subroutes stay behind the session.
+func isShortLivedLoginPath(path string) bool {
+	const prefix = "/api/v1/cli/login/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != "" && !strings.Contains(rest, "/")
 }
 
 func isMutating(method string) bool {

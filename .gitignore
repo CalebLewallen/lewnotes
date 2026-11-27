@@ -5,8 +5,10 @@
 *.test
 *.out
 
-# Local server data (vault lives outside the repo by default)
+# Local server data (vault lives outside the repo by default; ./vault is the dev default)
 /data/
+/vault/
+/server/vault/
 *.db
 *.db-wal
 *.db-shm

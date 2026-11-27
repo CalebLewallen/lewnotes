@@ -77,6 +77,14 @@ api "$BASE/api/v1/notes/$smoke_id" | grep -Eq '"resolution":"(exact|suffix)"' ||
 api "$BASE/api/v1/notes/$smoke_id" | grep -q '"resolution":"unresolved"' ||
 	fail "ghost link was not indexed"
 
+# Creating the ghost target resolves the link and makes the original a backlink.
+missing="$(create_note "inbox/Missing-$RUN.md" '# Missing')"
+missing_id="$(printf '%s' "$missing" | json_get 'd["id"]')"
+missing_etag="$(awk 'tolower($1) == "etag:" { print $2 }' "$TMP/headers" | tr -d '\r' | tail -n 1)"
+[ -n "$missing_id" ] || fail "ghost target creation did not return an id"
+api "$BASE/api/v1/notes/$missing_id/backlinks" | grep -q "\"path\":\"$SMOKE_PATH\"" ||
+	fail "creating the ghost did not add the backlink"
+
 code="$(api -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
 	-H "X-Lewnotes-CSRF: $CSRF" -d '{"content":"# Smoke v2"}' "$BASE/api/v1/notes/$smoke_id")"
 [ "$code" = "428" ] || fail "PUT without If-Match returned $code, want 428"
@@ -106,10 +114,40 @@ api "$BASE/api/v1/notes/$welcome_id/backlinks" | grep -q "\"path\":\"$SMOKE_PATH
 	fail "backlink from Smoke to Welcome is missing"
 api "$BASE/api/v1/notes/$welcome_id/links" | grep -q '"links"' || fail "links endpoint failed"
 
+# Directory creation and move are first-class mutations.
+DIR="smoke-dir-$RUN"
+api -H 'Content-Type: application/json' -H "X-Lewnotes-CSRF: $CSRF" \
+	-d "{\"path\":\"$DIR\"}" "$BASE/api/v1/dirs" | grep -q "\"path\":\"$DIR\"" ||
+	fail "directory creation failed"
+moved_dir="$(api -H 'Content-Type: application/json' -H "X-Lewnotes-CSRF: $CSRF" \
+	-d "{\"path\":\"$DIR\",\"new_path\":\"archive-$RUN/$DIR\",\"rewrite_links\":true}" \
+	"$BASE/api/v1/dirs/move")"
+printf '%s' "$moved_dir" | grep -q '"moved":true' || fail "directory move failed"
+api "$BASE/api/v1/tree?depth=5" | grep -q "\"path\":\"archive-$RUN/$DIR\"" ||
+	fail "moved directory is missing from tree"
+
+# Rename rewrites the inbound basename link and reports the count.
+moved="$(api -H 'Content-Type: application/json' -H "X-Lewnotes-CSRF: $CSRF" \
+	-d "{\"path\":\"WelcomeRenamed-$RUN.md\",\"rewrite_links\":true}" \
+	"$BASE/api/v1/notes/$welcome_id/move")"
+rewritten="$(printf '%s' "$moved" | json_get 'd["links_rewritten"]')"
+[ "$rewritten" = "1" ] || fail "rename rewritten count = $rewritten, want 1"
+welcome_etag="$(printf '%s' "$moved" | json_get 'd["note"]["etag"]')"
+api "$BASE/api/v1/notes/$smoke_id" | grep -q "\[\[WelcomeRenamed-$RUN\]\]" ||
+	fail "rename did not rewrite the inbound link"
+
+# The rewrite changed Smoke's content, so refresh its ETag before deleting.
+api -D "$TMP/headers" -o /dev/null "$BASE/api/v1/notes/$smoke_id"
+etag="$(awk 'tolower($1) == "etag:" { print $2 }' "$TMP/headers" | tr -d '\r' | tail -n 1)"
+
 code="$(api -o /dev/null -w '%{http_code}' -X DELETE -H "X-Lewnotes-CSRF: $CSRF" \
 	-H "If-Match: $etag" "$BASE/api/v1/notes/$smoke_id")"
 [ "$code" = "200" ] || fail "delete returned $code, want 200"
-api -o /dev/null -X DELETE -H "X-Lewnotes-CSRF: $CSRF" -H "If-Match: $welcome_etag" \
-	"$BASE/api/v1/notes/$welcome_id"
+code="$(api -o /dev/null -w '%{http_code}' -X DELETE -H "X-Lewnotes-CSRF: $CSRF" \
+	-H "If-Match: $missing_etag" "$BASE/api/v1/notes/$missing_id")"
+[ "$code" = "200" ] || fail "delete ghost target returned $code, want 200"
+code="$(api -o /dev/null -w '%{http_code}' -X DELETE -H "X-Lewnotes-CSRF: $CSRF" \
+	-H "If-Match: $welcome_etag" "$BASE/api/v1/notes/$welcome_id")"
+[ "$code" = "200" ] || fail "delete moved note returned $code, want 200"
 
 echo "notes smoke: passed"

@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "data": {
+    "arch": "<ARCH>",
+    "os": "<OS>",
+    "version": "test"
+  },
+  "warnings": []
+}

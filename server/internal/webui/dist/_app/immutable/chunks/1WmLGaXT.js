@@ -1,0 +1,1 @@
+export{a as load_css,i as start}from"./BIjj14H1.js";

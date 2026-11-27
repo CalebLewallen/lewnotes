@@ -61,7 +61,7 @@ These came out of the interview and are treated as settled unless explicitly reo
 | 14 | Core API | **REST + OpenAPI + SSE** change events. |
 | 15 | Write conflicts | **Optimistic concurrency** via ETag/`If-Match`, `409`/`412` on stale writes. |
 | 16 | ID storage | **YAML frontmatter `id:`** — IDs survive a full index rebuild and are visible in any editor. |
-| 17 | Vault layout | **Minimal + configurable**: `inbox/` and `attachments/` by convention; no enforced tree. |
+| 17 | Vault layout | **Minimal + configurable**: `inbox/` is the root for notes and new notes are always created inside it, in any subfolder structure; `attachments/` is upload-only and never accepts notes; no enforced tree inside `inbox/`. |
 | 18 | MVP scope | **Notes end to end** (scan, CRUD, links, search, auth, API, web UI, CLI). Todos, whiteboards, TUI follow. |
 | 19 | TUI scope | **Full reader/editor** — real markdown editing and navigation, not only capture. |
 | 20 | Agent docs | **`AGENTS.md` at root + `.agents/{skills,rules,plans,walkthroughs}/`.** |
@@ -151,7 +151,7 @@ lewnotes/
 ### 7.1 Root and layout
 
 - Configured path, e.g. `/data/vault` (`LEWNOTES_VAULT`). Created on first start with mode `0750`.
-- On first run, scaffold only: `inbox/` and `attachments/`. Nothing else is imposed; notes may live anywhere.
+- On first run, scaffold only: `inbox/` and `attachments/`. `inbox/` is the root for notes: new notes are always created inside it, and subfolders there are free-form. The vault root is not a note destination. `attachments/` is system-managed for uploaded files: notes cannot be created or moved into it.
 - Config names the folders so they remain configurable:
 
 ```toml
@@ -306,6 +306,8 @@ Supported syntax:
 - Aliases (`[[a|b]]`) and fragments (`#Heading`) are preserved.
 - Response reports `{ "moved": true, "links_rewritten": 7, "warnings": [...] }`; partial failure (e.g. an unwritable file) is a warning, not a rollback, and is logged + evented.
 
+**Web title linking.** The web editor treats frontmatter `title` as the document title. Committing a title change writes the title and, when the sanitized matching filename differs, moves the note within its current directory using the same rewrite behavior. Typing does not move the file on every keystroke; the move runs when the title is committed (blur or Enter).
+
 ---
 
 ## 9. Persistence: SQLite (decision #1)
@@ -366,9 +368,9 @@ FTS5 tables use external content + triggers (or are rebuilt on scan) so note edi
 - Base: `/api/v1`. JSON only, UTF-8. Timestamps RFC 3339 UTC.
 - Errors: `application/problem+json` (RFC 9457): `{type, title, status, detail, instance, errors[]}`.
 - Auth: cookie session (web) or `Authorization: Bearer <token>` (CLI/TUI/agents). Every route except `/api/v1/health`, `/api/v1/auth/setup` (pre-setup), `/api/v1/auth/login`, and the SPA shell requires auth.
-- OpenAPI 3.1 document is hand-written at `server/internal/api/openapi.json`, embedded and served at `/api/v1/openapi.json`. A Go test fails when a registered route is missing from it. Generated TS/Go clients are deferred to the CLI slice; the S4a web client is a small typed wrapper.
+- OpenAPI 3.1 document is hand-written at `server/internal/api/openapi.json`, embedded and served at `/api/v1/openapi.json`. A Go test fails when a registered route is missing from it. Generated TS/Go clients are deferred to the CLI slice; the web client is a small typed wrapper.
 - Pagination: `?limit=&cursor=` for lists; `?limit=0` means ids only.
-- Capability discovery: `GET /api/v1/meta` → `{version, instance_name, limits:{max_note_bytes}, features:["notes","wikilinks","search","tree","sse"]}` so clients negotiate features instead of guessing. The feature list grows as slices land.
+- Capability discovery: `GET /api/v1/meta` → `{version, instance_name, limits:{max_note_bytes}, features:["notes","wikilinks","search","tree","directories","sse"]}` so clients negotiate features instead of guessing. The feature list grows as slices land.
 
 ### 10.2 Notes
 
@@ -390,6 +392,8 @@ FTS5 tables use external content + triggers (or are rebuilt on scan) so note edi
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/tree?path=&depth=` | Directory listing for sidebar; includes non-md files with type |
+| `POST` | `/dirs` | `{path}` → create a directory; relative path, hidden segments rejected |
+| `POST` | `/dirs/move` | `{path, new_path, rewrite_links:true}` → move a directory, reindex contained notes, rewrite full-path links |
 | `GET` | `/files/{path}` | Raw bytes + `Content-Type`/`ETag`/`Content-Disposition`; images inline, others attachment |
 | `HEAD` | `/files/{path}` | Existence/metadata |
 | `POST` | `/attachments` | Multipart upload (§8.3) |
@@ -470,7 +474,7 @@ Mechanics:
 
 - `ETag` on notes/todos/whiteboards is `"<sha256 of content>"` (strong).
 - Mutating methods require `If-Match`; missing → `428 Precondition Required` (documented, with a `GET` hint), stale → `412 Precondition Failed` including the current ETag and a `diff` hint endpoint.
-- `GET /notes/{id}?diff_base=<etag>` returns a unified diff for the UI's conflict panel (read-only, no merge).
+- The S4b conflict panel fetches the current note and computes the diff in the browser (read-only, no merge). A server-side `GET /notes/{id}?diff_base=<etag>` shortcut remains an open optimization.
 - Whole-file replace is the default write; `PATCH` ops exist so an agent appending a line does not need to resend an entire note.
 
 ---
@@ -515,8 +519,14 @@ lnt.aHR0cHM6Ly9ub3Rlcy5leGFtcGxlLmNvbQ.01JC8Z9K2M4N6P8Q0R2S4T6V8W.kJ8s...32bytes
 - Server stores `sha256(secret)` and a display prefix `lnt.aHR0…k8s`, never the plaintext token. Verification is constant-time.
 - The token is a **bearer credential**: pasting it into a chat leaks it. Mitigations: shown once, revocable, `last_used_at` + user agent visible, optional `--keyring` storage, and docs telling agents to use `LEWNOTES_TOKEN` from the environment rather than literals.
 - If the instance's public URL changes, tokens still work (the server ignores the embedded URL); only the client's stored endpoint needs updating (`lewnotes config set server <url>`). The CLI warns when the embedded URL differs from its configured one.
+- Login handoff (S5b) uses a separate, versioned envelope: `lnh1.<base64url(envelope)>`, where the envelope is AES-256-GCM ciphertext of `{server, token, token_id, device_name, username}` encrypted to an ephemeral X25519 key generated by the CLI for that login. It is not a credential format and is never stored by a client. This is deliberately not a JWT: a JWT is signed but readable, and the point is to hide the endpoint and credential from anyone who captures the blob.
 
 ### 11.4 `lewnotes login` walkthrough
+
+> **Superseded by the S5b handoff flow** (`.agents/plans/2026-11-25-cli-login-handoff.md`). The
+> default `lewnotes login` now opens the web app and completes through an encrypted, single-use
+> handoff with no typed secret. The paste flow below remains supported as the manual/break-glass
+> path, and `--token-stdin` / `LEWNOTES_TOKEN` remain the agent and CI paths.
 
 ```
 $ lewnotes login
@@ -555,7 +565,9 @@ Flow rules:
 
 ### 11.5 Web token page
 
-`/settings/tokens`: device list table (name, prefix, created, last used, client), "Create token" dialog that shows the full token once with a copy button, a warning that it is unrecoverable, and per-row "Revoke". Also `DEVICE NAME` is prefilled from the browser/OS.
+`/settings/tokens`: device list table (name, prefix, created, last used, client), "Create token" dialog that shows the full token once with a copy button, a warning that it is unrecoverable, and per-row "Revoke". Also `DEVICE NAME` is prefilled from the browser/OS. The normal path is `lewnotes login`, which creates a token here after browser approval; the page copy leads with that.
+
+`/settings/instance` (S5b): the effective public URL — the origin embedded in tokens and login links. The owner types or accepts the browser's origin, and **Test** pings `GET <url>/api/v1/health` before saving, reporting the version, instance name, and whether setup is complete. `server.public_url` / `LEWNOTES_PUBLIC_URL` in config wins and renders read-only; otherwise the value lives in the `settings` table. The page also shows `server.listen` and `auth.trust_proxy`, and a **Connect a machine** block with the copyable `lewnotes login <public-url>` command.
 
 ### 11.6 Hardening checklist
 
@@ -575,7 +587,7 @@ Flow rules:
 - **SvelteKit 5** in SPA mode (`adapter-static` with fallback), embedded into the Go binary with `go:embed` and served from `/`. No Node runtime in the container.
 - **Svelte 5 runes** for state; no store-heavy legacy patterns.
 - **shadcn-svelte** components on **Tailwind 4**; dark-first with a light theme.
-- **CodeMirror 6** for the markdown editor (markdown language, wikilink autocomplete, `[[` completion backed by `GET /notes?limit=20&q=`), plus a rendered preview (remark/rehype with a custom wikilink + embed plugin, KaTeX optional).
+- **Editor:** S4b ships a plain textarea with Write/Preview tabs and a marked + DOMPurify preview. **CodeMirror 6** (markdown language, wikilink autocomplete, `[[` completion backed by `GET /notes?limit=20&q=`), remark/rehype preview, and optional KaTeX remain follow-ups.
 - **TanStack Query (svelte-query)** or a small hand-rolled fetch layer driven by the generated OpenAPI client; SSE invalidates queries.
 - Excalidraw loaded lazily on whiteboard routes only (it is heavy).
 
@@ -592,12 +604,15 @@ Flow rules:
 | `/search` | Full result page; also ⌘K palette overlay |
 | `/settings` | Devices/tokens, password change, instance info, index status/rescan |
 | `/settings/tokens` | The token issuance page used by the CLI flow |
+| `/settings/instance` | Public URL + health validation + "Connect a machine" command |
+| `/cli` | Headless device-code entry; resolves and forwards to the authorize panel |
+| `/cli/authorize` | Browser approval panel for a pending CLI login |
 
 ### 12.3 Behavior
 
-- Keyboard-first: ⌘K palette, `g n` / `g t` navigation, `e` edit, `Esc` cancel, `/` search — documented in `DESIGN.md`.
+- Keyboard-first: ⌘K palette, `e` edit, `⌘S` save, `Esc` cancel, `/` search — documented in `DESIGN.md`. `g n` / `g t` navigation is deferred.
 - Mobile-tolerant: below `md`, sidebar collapses to a drawer, editor goes full-width, a persistent "＋ capture" button opens note/todo quick-add, and the todos view uses large touch targets and swipe-to-complete.
-- Optimistic UI with server-confirmed ETags; on `412` show a diff panel ("server changed this note") with Reload / Overwrite options — no automatic merge.
+- Server-confirmed writes with ETags; on `412` show a diff panel ("server changed this note") with Reload / Overwrite options — no automatic merge.
 - Empty states for empty vault, no results, unresolved links, and indexing-in-progress.
 - Ghost links render in a dashed accent color and click-create the note at the connected component's chosen path.
 
@@ -819,7 +834,7 @@ allowed_origins = []
 12. **Vault import:** ingesting an existing Obsidian vault (adding frontmatter IDs in bulk, converting `[[links]]`) is out of v1 but a likely v1.1.
 13. **Tablet/phone PWA:** manifest + installable shell could be cheap; not planned.
 14. **Search ranking tuning** and whether title/path matches should outrank body (`bm25` weights).
-15. **Daily notes / templates / quick-capture target**: `inbox/` convention exists, but the capture destination and filename scheme (timestamped vs prompt) is unspecified.
+15. **Daily notes / templates / quick-capture target**: new notes are created inside `inbox/`, but the daily-note/template workflow and filename scheme (timestamped vs prompt) are unspecified.
 16. **Licensing** (MIT/Apache-2.0) and repo hosting details (`ghcr.io/<owner>` placeholder).
 
 ---
