@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "data": [
+    {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "path": "garden/Garden.md",
+      "title": "Garden",
+      "target": "Garden",
+      "kind": "link",
+      "resolution": "exact",
+      "line": 3
+    }
+  ],
+  "warnings": []
+}

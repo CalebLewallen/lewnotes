@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "data": {
+    "script": "_lewnotes() {\n  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W \"version login logout whoami config note search index skills completion help\" -- \"$cur\") )\n}\ncomplete -F _lewnotes lewnotes\n",
+    "shell": "bash"
+  },
+  "warnings": []
+}

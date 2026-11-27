@@ -21,8 +21,12 @@ Goal of this plan: reach a testable vertical slice fast — **auth and notes in 
 | S2 | Auth in core | S1 | ✅ done |
 | S3 | Notes in core: CRUD, links, search, SSE | S2 | ✅ done |
 | S4a | Web UI: login + read-only browsing | S3 | ✅ done |
-| S4b | Web UI: editor, palette, conflicts, SPA embed | S4a | ⬜ |
-| S5 | CLI + agent surface | S3 (S2 for login) | ⬜ |
+| S4b | Web UI: editor, palette, conflicts, SPA embed | S4a | 🟡 code complete · manual UI pass pending |
+| S4c | Web UI: immersive live editor + file-manager sidebar | S4b | 🟡 code complete · manual UI pass pending |
+| S4d | Web UI: mandatory shadcn-svelte refactor | S4c | 🟡 code complete · manual UI pass pending |
+| S4e | Web UI: command palette actions | S4d | 🟡 code complete · manual UI pass pending |
+| S5 | CLI + agent surface | S3 (S2 for login) | 🟡 code complete · manual CLI pass pending |
+| S5b | Frictionless CLI login handoff | S5 | 🟡 code complete · live CLI check passed · manual browser pass pending · [spec](2026-11-25-cli-login-handoff.md) |
 | S6 | Attachments end to end | S3, S4 | ⬜ |
 | S7 | Todos | S3 | ⬜ |
 | S8 | Whiteboards | S3, S4 | ⬜ |
@@ -141,7 +145,7 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 **S4a delivered 2026-11-24 (steering stop):** `DESIGN.md`; hand-built primitives on the design tokens instead of the shadcn CLI; typed API wrapper with credentials, CSRF, and problem+json errors; `/setup`, `/login`, guarded app shell with sidebar tree/filter and mobile drawer; read-only `/n/<path>` with sanitized markdown, API-resolved wikilinks, unresolved-link list, and backlinks; recent-note list; logout. Verified `npm run check`, `npm run build`, and a live dev-proxy/API smoke. Tasks 1, 3, 4, 10 and the read half of task 5 are done; the rest is S4b.
 
-**Remaining S4b:** editor + autosave/ETag, backlinks actions/ghost create, rename dialog, ⌘K search, conflict diff, SSE client refresh, generated clients, and `go:embed` of the built SPA.
+**S4b implemented 2026-11-24 (manual browser acceptance pending):** autosaving editor with `If-Match` and conflict diff (reload/overwrite), native create/rename dialogs, ghost-link creation from the reader, ⌘K search palette with snippets, SSE shell/tree/open-note refresh, and `go:embed` of the SPA served from `/`. Added `scripts/build-web.sh`, webui handler tests, and live smoke coverage for ghost creation + rename rewriting. Generated clients remain deferred to S5 per spec §10.1; the typed fetch wrapper was extended by hand.
 
 **Tasks**
 
@@ -162,9 +166,16 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 - `npm run check && npm run build` passes; built SPA is served by `lewnotes-core` from `/` (embed the static build with `go:embed` in this slice).
 - Works at 390px width without horizontal scrolling.
 
+**S4b verification note:** `npm run check`, the embedded build, Go tests, and the live API/SPA smoke pass. The click-through script (editor, dialogs, two-tab conflict, 390px) still needs a real browser; this environment has none, so the slice stays code-complete until that manual pass.
+
+**S4c implemented 2026-11-24 (manual browser acceptance pending):** replaced the textarea + Write/Preview toggle with an always-editable CodeMirror live markdown surface. The title, tags, and other frontmatter attributes are now structured controls; title edits save and then rename the file to a matching sanitized name. The sidebar gained per-folder inline note/folder creation and inline rename; the large New note button and path-editing dialog are gone. Added `POST /api/v1/dirs` and `POST /api/v1/dirs/move`, OpenAPI entries, Go service/API tests, `tree.changed` SSE, and full-path link rewriting on folder moves. Follow-up polish adds GFM table rendering, inline `#tag` styling, fenced-code syntax highlighting, `[[` note completion from the live tree, a viewport-filling editor, and cursor placement from blank areas. Verified `npm run check`, `npm run build`, helper and decoration-builder tests, Go tests/vet, and the live API/SPA smoke. Manual browser checks remain: live markdown/hiding rules, title rename, properties popover, inline create/rename, two-tab conflict, and 390px.
+
+**S4e implemented 2026-11-25 (manual browser acceptance pending):** the `Command.Dialog` palette now runs sidebar actions as well as search. New note/folder and rename use stepped command lists: choose a parent or target, then type the name and press `Enter`. Added `All notes` and `Sign out`, a one-step `Back` item, and stale-search invalidation when the step or query changes. Reuses the existing notes/dirs endpoints, path helpers, tree refresh, link-rewrite toasts, and current-route updates. Verified `npm run check` and the embedded build; manual keyboard/browser checks remain pending. Plan and walkthrough: `.agents/plans/2026-11-25-command-palette-actions.md`, `.agents/walkthroughs/2026-11-25-command-palette-actions.md`.
+
 **Notes/risks**
 
-- Do not build a markdown editor framework here: textarea + preview ships the slice. CodeMirror 6 (wikilink completion, syntax) is a follow-up, not a blocker.
+- **Superseded in S4c:** the S4b textarea decision was replaced by the always-editable CodeMirror live surface. S4b's editor checks now apply to S4c.
+- The live layer intentionally keeps markdown as the source of truth; tables and some rich constructs may still read as source. Do not add a second content model for the editor.
 - If shadcn-svelte's CLI fights SvelteKit 3, hand-vendor the primitives needed (button, dialog, input, command, toast) and note it.
 
 ---
@@ -172,6 +183,8 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 ## S5 — CLI + agent surface
 
 **Goal:** a human and an LLM can do everything S3/S4 can from a terminal.
+
+**Delivered 2026-11-25:** `cli/internal/config` (TOML, 0600, env overrides), a full `cli/client` (typed notes/search/index/auth endpoints, problem+json errors, token decode, ETag writes), `login`/`logout`/`whoami`, `config get|set`, the complete `note *` group, `search`, `index status|rescan`, `skills print|install`, and bash/zsh/fish completions. Every command has the `{ok,data,warnings,error}` envelope, `--json=lines`, documented exit codes, and a generated `--help --json` catalogue. Added the §11.5 web token page (`/settings/tokens`) because the CLI login flow needs a place to mint a token. The `lewnotes-cli` skill ships embedded and can install itself.
 
 **Tasks**
 
@@ -190,6 +203,35 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 - Non-interactive login works against `httptest` and stores/reads credentials correctly.
 - A shell-script "agent simulation" completes: login (env token) → search → append to note → verify with `note show --json` → conflict path returns exit 5.
 - `lewnotes --help --json | jq` fully describes the CLI with no undocumented commands.
+
+---
+
+## S5b — Frictionless CLI login handoff
+
+**Goal:** `lewnotes login` needs no typed secret and no clipboard: the CLI registers a login request,
+the owner approves it in the web app, and the CLI receives an encrypted, single-use handoff containing
+the server origin and the device token.
+
+**Spec:** [`2026-11-25-cli-login-handoff.md`](2026-11-25-cli-login-handoff.md). That document is the
+build contract: handoff crypto (`lnh1.` envelope encrypted to an ephemeral CLI X25519 key), the
+loopback and device-code flows, the `/cli/authorize` + `/cli` + `/settings/instance` pages, endpoints,
+migration `0004`, tests, and acceptance list.
+
+**Key call:** the payload is encrypted to a per-login ephemeral CLI keypair. A key compiled into the
+binary is rejected — anyone with the binary could decrypt captured handoffs just as easily.
+
+**Implemented 2026-11-25:** migration `0004` (`settings`, `cli_login_requests`), `lnh1.` handoff crypto
+(X25519 + HKDF-SHA256 + AES-256-GCM with request/origin AAD), `internal/clilogin` (create/approve/deny/
+resolve/consume/cancel/sweep with hashed state and Crockford user codes), `/api/v1/settings` +
+`/api/v1/settings/validate`, the full `/api/v1/cli/login` surface, `/settings/instance`, `/cli`, and
+`/cli/authorize`, and a rewritten `lewnotes login` with loopback and `--no-browser` device-code flows.
+`app.connect` now derives the origin from a bare `LEWNOTES_TOKEN`. Verified with server/CLI unit tests,
+`go vet`, `npm run check`, `npm run build`, and a live end-to-end run of both flows (code → approve →
+encrypted handoff → 0600 config → `whoami`, loopback callback page, and denial). Manual browser pass on
+the three new pages remains.
+
+**Done when** the spec's §10 checklist passes. The existing paste, `--token-stdin`, and
+`LEWNOTES_TOKEN` paths must keep working; this slice adds a path, it does not remove one.
 
 ---
 
@@ -267,4 +309,4 @@ Rationale for the order: auth has to exist before any UI can be tested realistic
 
 ## Next action
 
-Continue **S4b** after steering: editor with explicit save/autosave and `If-Match`, command-palette search, rename + ghost-link flows, 412 conflict diff, SSE refresh, then embed the built SPA in `lewnotes-core`. The S4a read-only UI is the point to review interaction and visual direction before that work.
+Do the manual S5 pass: create a token at `/settings/tokens`, run `lewnotes login`, then exercise `whoami`, `note list/show/append/mv`, `search`, `index status`, and `skills install`. Confirm the conflict exit code with the automated agent test. Then start **S6** (attachments end to end), which reuses the token page and CLI foundation.

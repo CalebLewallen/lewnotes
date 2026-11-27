@@ -37,10 +37,11 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { _ = ix.Close() })
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	svc := notes.New(notes.Options{
-		Vault:  v,
-		Index:  ix,
-		Events: events.New(events.Options{Buffer: 10}),
-		Logger: logger,
+		Vault:       v,
+		Index:       ix,
+		Events:      events.New(events.Options{Buffer: 10}),
+		Logger:      logger,
+		Attachments: "attachments",
 	})
 	return &fixture{svc: svc, vault: v, index: ix, dir: dir}
 }
@@ -216,6 +217,123 @@ func TestLinksBacklinksAndMoveRewrite(t *testing.T) {
 	}
 }
 
+func TestDirectoriesCreateAndMove(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+
+	created, err := f.svc.CreateDir(ctx, "projects")
+	if err != nil || created != "projects" {
+		t.Fatalf("CreateDir() = %q, %v", created, err)
+	}
+	if _, err := f.svc.CreateDir(ctx, "projects"); !errors.Is(err, notes.ErrExists) {
+		t.Errorf("CreateDir(existing) error = %v, want ErrExists", err)
+	}
+
+	a := mustCreate(t, f.svc, "projects/A.md", "# A\n")
+	b := mustCreate(t, f.svc, "projects/B.md", "# B\n\nSee [[projects/A]] and [[A]].\n")
+	outside := mustCreate(t, f.svc, "outside.md", "# Outside\n\nSee [[projects/A]] and [[A]].\n")
+
+	result, err := f.svc.MoveDir(ctx, "projects", "archive/projects", true)
+	if err != nil {
+		t.Fatalf("MoveDir() error = %v", err)
+	}
+	if !result.Moved || result.NotesMoved != 2 || result.Path != "archive/projects" {
+		t.Errorf("MoveDir() = %+v", result)
+	}
+	if result.LinksRewritten != 2 {
+		t.Errorf("LinksRewritten = %d, want 2", result.LinksRewritten)
+	}
+
+	for _, note := range []notes.Note{a, b} {
+		read, err := f.svc.Read(ctx, note.ID)
+		if err != nil {
+			t.Fatalf("Read(%s) error = %v", note.ID, err)
+		}
+		if !strings.HasPrefix(read.Path, "archive/projects/") {
+			t.Errorf("moved path = %q", read.Path)
+		}
+	}
+	if _, err := f.svc.ReadByPath(ctx, "projects/A.md"); !errors.Is(err, notes.ErrNotFound) {
+		t.Errorf("ReadByPath(old dir) error = %v, want ErrNotFound", err)
+	}
+
+	rewrittenB, err := f.svc.Read(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rewrittenB.Body, "[[archive/projects/A]]") || !strings.Contains(rewrittenB.Body, "[[A]]") {
+		t.Errorf("moved note links = %q", rewrittenB.Body)
+	}
+	rewrittenOutside, err := f.svc.Read(ctx, outside.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rewrittenOutside.Body, "[[archive/projects/A]]") || !strings.Contains(rewrittenOutside.Body, "[[A]]") {
+		t.Errorf("outside links = %q", rewrittenOutside.Body)
+	}
+	for _, link := range rewrittenOutside.Links {
+		if link.Target == "archive/projects/A" && link.Resolution != "exact" {
+			t.Errorf("rewritten link = %+v", link)
+		}
+	}
+
+	tree, err := f.svc.Tree(ctx, "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !treeContains(tree, "archive/projects") || treeContains(tree, "projects") {
+		t.Errorf("tree after move = %+v", tree)
+	}
+
+	if _, err := f.svc.MoveDir(ctx, "archive/projects", "archive/projects/inside", true); !errors.Is(err, notes.ErrInvalidPath) {
+		t.Errorf("MoveDir(into itself) error = %v, want ErrInvalidPath", err)
+	}
+	if _, err := f.svc.CreateDir(ctx, "archive/taken"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.MoveDir(ctx, "archive/projects", "archive/taken", true); !errors.Is(err, notes.ErrExists) {
+		t.Errorf("MoveDir(existing) error = %v, want ErrExists", err)
+	}
+}
+
+func treeContains(nodes []notes.TreeNode, path string) bool {
+	for _, node := range nodes {
+		if node.Path == path {
+			return true
+		}
+		if treeContains(node.Children, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestAttachmentsRejectNotes(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+
+	if _, err := f.svc.Create(ctx, notes.CreateInput{Path: "attachments/sketch.md"}); !errors.Is(err, notes.ErrInvalidPath) {
+		t.Fatalf("Create(attachments) error = %v, want ErrInvalidPath", err)
+	}
+	if _, err := f.svc.Create(ctx, notes.CreateInput{Path: "attachments/2026/sketch.md"}); !errors.Is(err, notes.ErrInvalidPath) {
+		t.Fatalf("Create(attachments subfolder) error = %v, want ErrInvalidPath", err)
+	}
+
+	note := mustCreate(t, f.svc, "Kitchen", "# Kitchen\n")
+	if _, err := f.svc.Move(ctx, note.ID, "attachments/Kitchen.md", true); !errors.Is(err, notes.ErrInvalidPath) {
+		t.Fatalf("Move(into attachments) error = %v, want ErrInvalidPath", err)
+	}
+	if _, err := f.svc.CreateDir(ctx, "projects"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.MoveDir(ctx, "projects", "attachments/projects", true); !errors.Is(err, notes.ErrInvalidPath) {
+		t.Fatalf("MoveDir(into attachments) error = %v, want ErrInvalidPath", err)
+	}
+	if _, err := f.svc.ReadByPath(ctx, note.Path); err != nil {
+		t.Fatalf("rejected move changed the note: %v", err)
+	}
+}
+
 func TestDeleteMovesToTrash(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
@@ -275,6 +393,29 @@ func TestTreeIncludesFiles(t *testing.T) {
 	}
 	if _, _, _, err := f.svc.ReadFile(ctx, ".lewnotes/trash/x.md"); !errors.Is(err, notes.ErrInvalidPath) {
 		t.Errorf("ReadFile(reserved) error = %v", err)
+	}
+}
+
+func TestTreeSortsFilesBeforeDirectories(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	mustCreate(t, f.svc, "zebra.md", "# Zebra\n")
+	mustCreate(t, f.svc, "Beta.md", "# Beta\n")
+	mustCreate(t, f.svc, "alpha/nested.md", "# Nested\n")
+
+	tree, err := f.svc.Tree(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("Tree() error = %v", err)
+	}
+	var got []string
+	for _, node := range tree {
+		switch node.Path {
+		case "Beta.md", "zebra.md", "alpha":
+			got = append(got, node.Path)
+		}
+	}
+	if want := []string{"Beta.md", "zebra.md", "alpha"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("tree order = %v, want %v", got, want)
 	}
 }
 

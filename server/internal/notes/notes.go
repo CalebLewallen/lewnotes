@@ -55,15 +55,18 @@ type Options struct {
 	Events   *events.Hub
 	Logger   *slog.Logger
 	MaxBytes int64
+	// Attachments is the vault-relative folder reserved for uploaded files.
+	Attachments string
 }
 
 // Service is the single mutation path for notes.
 type Service struct {
-	vault    *vault.Vault
-	index    *index.Index
-	events   *events.Hub
-	logger   *slog.Logger
-	maxBytes int64
+	vault       *vault.Vault
+	index       *index.Index
+	events      *events.Hub
+	logger      *slog.Logger
+	maxBytes    int64
+	attachments string
 }
 
 // New builds a note service.
@@ -75,11 +78,12 @@ func New(opts Options) *Service {
 		opts.MaxBytes = DefaultMaxBytes
 	}
 	return &Service{
-		vault:    opts.Vault,
-		index:    opts.Index,
-		events:   opts.Events,
-		logger:   opts.Logger,
-		maxBytes: opts.MaxBytes,
+		vault:       opts.Vault,
+		index:       opts.Index,
+		events:      opts.Events,
+		logger:      opts.Logger,
+		maxBytes:    opts.MaxBytes,
+		attachments: strings.Trim(strings.ReplaceAll(opts.Attachments, `\`, "/"), "/"),
 	}
 }
 
@@ -128,6 +132,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Note, error) {
 	rel, err := CleanPath(in.Path)
 	if err != nil {
 		return Note{}, err
+	}
+	if s.inAttachments(rel) {
+		return Note{}, fmt.Errorf("%w: %s holds uploaded files, not notes", ErrInvalidPath, s.attachments)
 	}
 	if _, err := s.vault.Stat(rel); err == nil {
 		return Note{}, ErrExists
@@ -431,6 +438,36 @@ func (s *Service) publish(ctx context.Context, kind string, note Note) {
 		"etag":   note.ETag,
 		"origin": OriginFromContext(ctx),
 	})
+}
+
+// inAttachments reports whether rel is the configured attachments folder or
+// below it. Attachments hold uploaded files; notes live everywhere else.
+func (s *Service) inAttachments(rel string) bool {
+	if s.attachments == "" {
+		return false
+	}
+	return rel == s.attachments || strings.HasPrefix(rel, s.attachments+"/")
+}
+
+// CleanDirPath validates and normalizes a vault-relative directory path.
+// Directories are first-class vault entries, but hidden and reserved paths
+// remain off limits for the same reasons they are ignored by the scanner.
+func CleanDirPath(rel string) (string, error) {
+	clean := strings.TrimSpace(strings.ReplaceAll(rel, `\`, "/"))
+	clean = strings.Trim(clean, "/")
+	clean = path.Clean(clean)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) {
+		return "", ErrInvalidPath
+	}
+	if len(clean) > 512 || strings.ContainsRune(clean, 0) {
+		return "", ErrInvalidPath
+	}
+	for _, segment := range strings.Split(clean, "/") {
+		if segment == "" || strings.HasPrefix(segment, ".") {
+			return "", ErrInvalidPath
+		}
+	}
+	return clean, nil
 }
 
 // CleanPath validates and normalizes a vault-relative note path, adding the

@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "data": [
+    {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "path": "Kitchen.md",
+      "title": "Kitchen",
+      "snippet": "See \u003cmark\u003eGarden\u003c/mark\u003e",
+      "tags": [
+        "home"
+      ],
+      "type": "note"
+    },
+    {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "path": "garden/Garden.md",
+      "title": "Garden",
+      "snippet": "A \u003cmark\u003egarden\u003c/mark\u003e",
+      "tags": [],
+      "type": "note"
+    }
+  ],
+  "warnings": []
+}

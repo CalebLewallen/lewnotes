@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "data": {
+    "state": "idle",
+    "mode": "incremental",
+    "files_total": 3,
+    "files_done": 3,
+    "started_at": "2026-11-20T12:00:00Z",
+    "finished_at": "2026-11-20T12:00:01Z",
+    "warnings": [],
+    "notes": 2
+  },
+  "warnings": []
+}

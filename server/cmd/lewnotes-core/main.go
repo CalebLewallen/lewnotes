@@ -17,10 +17,12 @@ import (
 
 	"github.com/caleblewallen/lewnotes/server/internal/api"
 	"github.com/caleblewallen/lewnotes/server/internal/auth"
+	"github.com/caleblewallen/lewnotes/server/internal/clilogin"
 	"github.com/caleblewallen/lewnotes/server/internal/config"
 	"github.com/caleblewallen/lewnotes/server/internal/events"
 	"github.com/caleblewallen/lewnotes/server/internal/index"
 	"github.com/caleblewallen/lewnotes/server/internal/notes"
+	"github.com/caleblewallen/lewnotes/server/internal/settings"
 	"github.com/caleblewallen/lewnotes/server/internal/vault"
 	"github.com/caleblewallen/lewnotes/server/internal/version"
 )
@@ -113,12 +115,35 @@ func run() error {
 		return err
 	}
 
+	settingsStore := settings.NewStore(ix.DB())
+	cliLogin, err := clilogin.NewService(clilogin.Options{DB: ix.DB(), Auth: authService})
+	if err != nil {
+		return err
+	}
+	sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := cliLogin.Sweep(sweepCtx, 24*time.Hour); err != nil {
+		logger.Warn("sweep login requests", "error", err)
+	}
+	sweepCancel()
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := cliLogin.Sweep(ctx, 24*time.Hour); err != nil {
+				logger.Warn("sweep login requests", "error", err)
+			}
+			cancel()
+		}
+	}()
+
 	hub := events.New(events.Options{Buffer: 1000})
 	noteService := notes.New(notes.Options{
-		Vault:  v,
-		Index:  ix,
-		Events: hub,
-		Logger: logger,
+		Vault:       v,
+		Index:       ix,
+		Events:      hub,
+		Logger:      logger,
+		Attachments: cfg.Vault.Attachments,
 	})
 
 	scanner := index.NewScanner(v, ix, logger)
@@ -149,8 +174,11 @@ func run() error {
 			Auth:       authService,
 			Notes:      noteService,
 			Events:     hub,
+			Settings:   settingsStore,
+			CLILogin:   cliLogin,
 			TrustProxy: cfg.Server.TrustProxy,
 			PublicURL:  cfg.Server.PublicURL,
+			Listen:     cfg.Server.Listen,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

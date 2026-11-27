@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -173,6 +174,7 @@ func (c *Config) Normalize() error {
 		return fmt.Errorf("server.data_dir: %w", err)
 	}
 	c.Server.DataDir = dataDir
+	c.Server.PublicURL = strings.TrimRight(c.Server.PublicURL, "/")
 	return nil
 }
 
@@ -250,6 +252,13 @@ func (c *Config) validate(sources map[string]string) error {
 	}
 	if strings.TrimSpace(c.Server.DataDir) == "" {
 		add("server.data_dir", "must not be empty")
+	}
+	if strings.TrimSpace(c.Server.PublicURL) != "" {
+		u, err := url.Parse(c.Server.PublicURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+			u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			add("server.public_url", "must be an origin such as https://notes.example.com")
+		}
 	}
 	switch c.Server.LogLevel {
 	case "debug", "info", "warn", "error":

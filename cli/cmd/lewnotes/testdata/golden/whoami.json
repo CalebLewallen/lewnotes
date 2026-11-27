@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "data": {
+    "username": "caleb",
+    "auth": "token",
+    "instance_name": "home",
+    "token": {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "name": "cli",
+      "scope": "full"
+    }
+  },
+  "warnings": []
+}

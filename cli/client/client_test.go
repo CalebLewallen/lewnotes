@@ -17,7 +17,7 @@ func TestHealth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := New(srv.URL+"/").Health(context.Background())
+	got, err := New(srv.URL + "/").Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health() error = %v", err)
 	}

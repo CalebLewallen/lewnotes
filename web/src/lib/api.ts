@@ -83,13 +83,111 @@ export interface TreeResponse {
 	tree: TreeNode[];
 }
 
+export interface CreateNoteInput {
+	path: string;
+	content?: string;
+}
+
+export interface MoveResult {
+	moved: boolean;
+	note: Note;
+	links_rewritten: number;
+	warnings?: string[];
+}
+
+export interface DirMoveResult {
+	moved: boolean;
+	path: string;
+	notes_moved: number;
+	links_rewritten: number;
+	warnings?: string[];
+}
+
+export interface SearchHit {
+	id: string;
+	path: string;
+	title: string;
+	snippet: string;
+	tags: string[];
+	type: 'note' | 'todo' | 'attachment' | 'whiteboard';
+}
+
+export interface SearchResponse {
+	hits: SearchHit[];
+	total: number;
+	next_cursor?: string;
+}
+
+export interface TokenView {
+	id: string;
+	name: string;
+	prefix: string;
+	scope: string;
+	created_at: string;
+	last_used_at?: string | null;
+	user_agent?: string;
+}
+
+export interface IssuedToken extends TokenView {
+	token: string;
+}
+
+export interface TokenList {
+	tokens: TokenView[];
+}
+
+export interface InstanceSettings {
+	public_url: string;
+	source: 'config' | 'settings' | 'derived';
+	derived_origin: string;
+	trust_proxy: boolean;
+	listen: string;
+	instance_name?: string;
+}
+
+export interface ProbeResult {
+	valid: boolean;
+	url: string;
+	version?: string;
+	instance_name?: string;
+	setup_required: boolean;
+	latency_ms: number;
+}
+
+export interface CLILoginPreview {
+	id: string;
+	device_name: string;
+	client: string;
+	created_at: string;
+	expires_at: string;
+	server: string;
+	status: string;
+	approve_url?: string;
+}
+
+export interface CLILoginApproval {
+	status: string;
+	device_name: string;
+	redirect_url?: string;
+}
+
+interface Problem {
+	type?: string;
+	title?: string;
+	detail?: string;
+}
+
 export class ApiError extends Error {
 	status: number;
+	type?: string;
+	etag?: string;
 
-	constructor(status: number, message: string) {
+	constructor(status: number, message: string, options: { type?: string; etag?: string } = {}) {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
+		this.type = options.type;
+		this.etag = options.etag;
 	}
 }
 
@@ -108,22 +206,27 @@ async function request<T>(
 ): Promise<T> {
 	const method = (init.method ?? 'GET').toUpperCase();
 	const headers = new Headers(init.headers);
-	if (init.body) headers.set('Content-Type', 'application/json');
+	if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+	headers.set('X-Lewnotes-Client', 'web');
 	if (csrfToken && method !== 'GET' && method !== 'HEAD') {
 		headers.set('X-Lewnotes-CSRF', csrfToken);
 	}
 
 	const response = await fetchFn(path, { ...init, method, headers, credentials: 'include' });
 	if (!response.ok) {
+		let problem: Problem = {};
 		let detail = `${response.status} ${response.statusText}`;
 		try {
-			const problem = (await response.json()) as { detail?: string; title?: string };
+			problem = (await response.json()) as Problem;
 			detail = problem.detail || problem.title || detail;
 		} catch {
 			// Non-JSON errors keep the status text.
 		}
 		if (response.status === 401) csrfToken = '';
-		throw new ApiError(response.status, detail);
+		throw new ApiError(response.status, detail, {
+			type: problem.type,
+			etag: response.headers.get('ETag') ?? undefined
+		});
 	}
 	if (response.status === 204) return undefined as T;
 	return (await response.json()) as T;
@@ -164,8 +267,112 @@ export const api = {
 	noteByPath(fetchFn: FetchFn, path: string) {
 		return request<Note>(`/api/v1/notes/by-path?path=${encodeURIComponent(path)}`, {}, fetchFn);
 	},
+	noteById(fetchFn: FetchFn, id: string) {
+		return request<Note>(`/api/v1/notes/${encodeURIComponent(id)}`, {}, fetchFn);
+	},
+	createNote(fetchFn: FetchFn, input: CreateNoteInput) {
+		return request<Note>(
+			'/api/v1/notes',
+			{ method: 'POST', body: JSON.stringify({ path: input.path, content: input.content ?? '' }) },
+			fetchFn
+		);
+	},
+	updateNote(fetchFn: FetchFn, id: string, content: string, etag: string) {
+		return request<Note>(
+			`/api/v1/notes/${encodeURIComponent(id)}`,
+			{
+				method: 'PUT',
+				body: JSON.stringify({ content }),
+				headers: { 'If-Match': etag }
+			},
+			fetchFn
+		);
+	},
+	moveNote(fetchFn: FetchFn, id: string, path: string, rewriteLinks = true) {
+		return request<MoveResult>(
+			`/api/v1/notes/${encodeURIComponent(id)}/move`,
+			{ method: 'POST', body: JSON.stringify({ path, rewrite_links: rewriteLinks }) },
+			fetchFn
+		);
+	},
+	createDir(fetchFn: FetchFn, path: string) {
+		return request<{ path: string }>(
+			'/api/v1/dirs',
+			{ method: 'POST', body: JSON.stringify({ path }) },
+			fetchFn
+		);
+	},
+	moveDir(fetchFn: FetchFn, path: string, newPath: string, rewriteLinks = true) {
+		return request<DirMoveResult>(
+			'/api/v1/dirs/move',
+			{ method: 'POST', body: JSON.stringify({ path, new_path: newPath, rewrite_links: rewriteLinks }) },
+			fetchFn
+		);
+	},
+	search(fetchFn: FetchFn, query: string, limit = 20) {
+		const params = new URLSearchParams({ q: query, limit: String(limit) });
+		return request<SearchResponse>(`/api/v1/search?${params}`, {}, fetchFn);
+	},
 	tree(fetchFn: FetchFn = fetch, depth = 6) {
 		return request<TreeResponse>(`/api/v1/tree?depth=${depth}`, {}, fetchFn);
+	},
+	listTokens(fetchFn: FetchFn = fetch) {
+		return request<TokenList>('/api/v1/tokens', {}, fetchFn);
+	},
+	createToken(fetchFn: FetchFn, name: string) {
+		return request<IssuedToken>(
+			'/api/v1/tokens',
+			{ method: 'POST', body: JSON.stringify({ name }) },
+			fetchFn
+		);
+	},
+	revokeToken(fetchFn: FetchFn, id: string) {
+		return request<void>(`/api/v1/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }, fetchFn);
+	},
+	getSettings(fetchFn: FetchFn = fetch) {
+		return request<InstanceSettings>('/api/v1/settings', {}, fetchFn);
+	},
+	updateSettings(fetchFn: FetchFn, publicUrl: string) {
+		return request<InstanceSettings>(
+			'/api/v1/settings',
+			{ method: 'PATCH', body: JSON.stringify({ public_url: publicUrl }) },
+			fetchFn
+		);
+	},
+	validateServer(fetchFn: FetchFn, url: string) {
+		return request<ProbeResult>(
+			'/api/v1/settings/validate',
+			{ method: 'POST', body: JSON.stringify({ url }) },
+			fetchFn
+		);
+	},
+	previewCLILogin(fetchFn: FetchFn, id: string) {
+		return request<CLILoginPreview>(
+			`/api/v1/cli/login/${encodeURIComponent(id)}/preview`,
+			{},
+			fetchFn
+		);
+	},
+	approveCLILogin(fetchFn: FetchFn, id: string, deviceName: string) {
+		return request<CLILoginApproval>(
+			`/api/v1/cli/login/${encodeURIComponent(id)}/approve`,
+			{ method: 'POST', body: JSON.stringify({ device_name: deviceName }) },
+			fetchFn
+		);
+	},
+	denyCLILogin(fetchFn: FetchFn, id: string) {
+		return request<{ status: string }>(
+			`/api/v1/cli/login/${encodeURIComponent(id)}/deny`,
+			{ method: 'POST', body: JSON.stringify({}) },
+			fetchFn
+		);
+	},
+	resolveCLILogin(fetchFn: FetchFn, userCode: string) {
+		return request<CLILoginPreview>(
+			'/api/v1/cli/login/resolve',
+			{ method: 'POST', body: JSON.stringify({ user_code: userCode }) },
+			fetchFn
+		);
 	}
 };
 

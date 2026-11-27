@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "data": [
+    {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "path": "Kitchen.md",
+      "title": "Kitchen",
+      "excerpt": "Excerpt for Kitchen",
+      "tags": [
+        "home"
+      ],
+      "size": 24,
+      "updated_at": 1763200000
+    },
+    {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "path": "garden/Garden.md",
+      "title": "Garden",
+      "excerpt": "Excerpt for Garden",
+      "tags": [],
+      "size": 18,
+      "updated_at": 1763200000
+    }
+  ],
+  "warnings": []
+}

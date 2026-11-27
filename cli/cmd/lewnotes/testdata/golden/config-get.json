@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "data": {
+    "config_path": "<CONFIG_PATH>",
+    "device_name": "test-box",
+    "server": "<SERVER>",
+    "token_set": true
+  },
+  "warnings": []
+}

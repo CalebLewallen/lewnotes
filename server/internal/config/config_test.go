@@ -54,6 +54,29 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
+func TestPublicURLMustBeAnOrigin(t *testing.T) {
+	clearEnv(t)
+
+	path := filepath.Join(t.TempDir(), "lewnotes.toml")
+	if err := os.WriteFile(path, []byte("[server]\npublic_url = \"notes.example.com\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "server.public_url") {
+		t.Fatalf("Load() error = %v, want a server.public_url validation error", err)
+	}
+
+	if err := os.WriteFile(path, []byte("[server]\npublic_url = \"https://notes.example.com/\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.PublicURL != "https://notes.example.com" {
+		t.Errorf("public_url = %q, want the trailing slash stripped", cfg.Server.PublicURL)
+	}
+}
+
 func TestFileAndEnvPrecedence(t *testing.T) {
 	clearEnv(t)
 
